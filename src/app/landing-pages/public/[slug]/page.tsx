@@ -62,27 +62,25 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
     );
   }
 
+  // Parse form_fields - handle both string and object formats
   const rawFields = typeof page.form_fields === "string" ? JSON.parse(page.form_fields) : page.form_fields || ["email", "name"];
-  // Normalize: if fields are objects with {name, type, required}, use them directly
-  // If fields are strings like ["email", "name"], convert to objects
-  const fields = rawFields.map((f: any) => typeof f === "string" ? { name: f, type: f === "email" ? "email" : "text", required: f === "email" || f === "name" } : f);
+  const fields = rawFields.map((f: any) =>
+    typeof f === "string"
+      ? { name: f, type: f === "email" ? "email" : "text", required: f === "email" || f === "name" }
+      : f
+  );
 
   const fieldLabels: Record<string, string> = {
     name: "Full Name",
     email: "Email Address",
     phone: "Phone Number",
+    address: "Address",
     company: "Current Company",
     location: "Location",
     experience: "Years of Experience",
     portfolio: "Portfolio / LinkedIn URL",
     availability: "Availability",
     message: "Tell us about yourself",
-  };
-
-  const fieldTypes: Record<string, string> = {
-    email: "email",
-    phone: "tel",
-    portfolio: "url",
   };
 
   return (
@@ -149,6 +147,8 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
               const fieldOptions = field.options || [];
               const isTextarea = fieldType === "textarea";
               const isSelect = fieldType === "select";
+              const label = fieldLabels[fieldName] || fieldName;
+
               return (
                 <div key={fieldName} style={{ marginBottom: "1rem" }}>
                   <label style={{
@@ -156,16 +156,21 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
                     fontWeight: 600, marginBottom: "0.35rem", textTransform: "uppercase",
                     letterSpacing: "0.05em",
                   }}>
-                    {fieldLabels[fieldName] || fieldName} {fieldName === "email" || fieldName === "name" ? "*" : ""}
+                    {label} {fieldRequired ? "*" : ""}
                   </label>
+
                   {isSelect ? (
                     <select
                       required={fieldRequired}
                       value={formData[fieldName] || ""}
                       onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
-                      style={{ width: "100%", padding: "0.75rem 1rem", borderRadius: "0.5rem", border: "1px solid rgba(148, 163, 184, 0.2)", background: "rgba(15, 23, 42, 0.6)", color: "#f1f5f9", fontSize: "0.9rem", outline: "none" }}
+                      style={{
+                        width: "100%", padding: "0.75rem 1rem", borderRadius: "0.5rem",
+                        border: "1px solid rgba(148, 163, 184, 0.2)", background: "rgba(15, 23, 42, 0.6)",
+                        color: "#f1f5f9", fontSize: "0.9rem", outline: "none",
+                      }}
                     >
-                      <option value="">Select...</option>
+                      <option value="">Select {label}...</option>
                       {fieldOptions.map((opt: string) => (
                         <option key={opt} value={opt}>{opt}</option>
                       ))}
@@ -174,7 +179,7 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
                     <textarea
                       required={fieldRequired}
                       rows={4}
-                      placeholder={`Your ${fieldLabels[fieldName] || fieldName}...`}
+                      placeholder={`Your ${label.toLowerCase()}...`}
                       value={formData[fieldName] || ""}
                       onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
                       style={{
@@ -187,9 +192,9 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
                     />
                   ) : (
                     <input
-                      type={isSelect ? undefined : (fieldTypes[fieldName] || fieldType)}
-                      required={fieldName === "email" || fieldName === "name"}
-                      placeholder={`Your ${fieldLabels[fieldName] || fieldName}...`}
+                      type={fieldType === "tel" ? "tel" : fieldType === "url" ? "url" : fieldType}
+                      required={fieldRequired}
+                      placeholder={`Your ${label.toLowerCase()}...`}
                       value={formData[fieldName] || ""}
                       onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
                       style={{
@@ -208,12 +213,11 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
               type="submit"
               disabled={submitting}
               style={{
-                width: "100%", padding: "0.8rem", borderRadius: "0.5rem", border: "none",
-                background: "linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7)",
-                color: "#fff", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer",
-                marginTop: "0.5rem", letterSpacing: "0.02em",
-                boxShadow: "0 4px 15px rgba(99, 102, 241, 0.3)",
-                opacity: submitting ? 0.7 : 1,
+                width: "100%", padding: "0.85rem", borderRadius: "0.5rem", border: "none",
+                background: submitting ? "rgba(99, 102, 241, 0.5)" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                color: "#fff", fontSize: "0.95rem", fontWeight: 600, cursor: submitting ? "not-allowed" : "pointer",
+                marginTop: "0.5rem",
+                boxShadow: submitting ? "none" : "0 4px 15px rgba(99, 102, 241, 0.4)",
               }}
             >
               {submitting ? "⏳ Submitting..." : "🚀 Submit Application"}
@@ -222,7 +226,7 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
         )}
 
         {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: "1.5rem", color: "#475569", fontSize: "0.7rem" }}>
+        <div style={{ textAlign: "center", marginTop: "1.5rem", color: "#475569", fontSize: "0.75rem" }}>
           Powered by Bulk Emailer
         </div>
       </div>
