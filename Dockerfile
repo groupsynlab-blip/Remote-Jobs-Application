@@ -13,11 +13,10 @@ RUN npm ci
 
 COPY . .
 
-# Remove .next to force fresh build
 RUN rm -rf .next && npm run build
 
 RUN mkdir -p /app/data
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD npm start
