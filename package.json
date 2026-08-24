@@ -29,5 +29,5 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "description": "Bulk Emailer Platform build 1787587170"
+  "description": "Bulk email sending application"
 }
