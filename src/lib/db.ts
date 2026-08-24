@@ -22,6 +22,7 @@ export function getDb(): Database.Database {
 }
 
 function initializeDb(db: Database.Database) {
+  try {
   db.exec(`
     -- ═══ Tables ═══
 
@@ -328,6 +329,9 @@ function initializeDb(db: Database.Database) {
       FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
     );
   `);
+  } catch (e: any) {
+    console.error('[DB] Main schema init error:', e.message);
+  }
 
   // contact_tags tables moved to main exec block above
 
