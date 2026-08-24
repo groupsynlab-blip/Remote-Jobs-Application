@@ -6,6 +6,7 @@ const SECRET = process.env.AUTH_SECRET || 'bulk-emailer-session-secret-2024';
 // Paths that don't require authentication
 const PUBLIC_PATHS = [
   '/login',
+  '/health',
   '/api/auth',
   '/api/landing-pages/public',
   '/landing-pages/public',
