@@ -114,7 +114,7 @@ export default function VerifyPage() {
       setSuggestions([]);
       setShowSuggestions(false);
       setSuggestionSummary(null);
-      setServerCorrections([]);
+      // setServerCorrections was removed (not declared)
       return;
     }
 

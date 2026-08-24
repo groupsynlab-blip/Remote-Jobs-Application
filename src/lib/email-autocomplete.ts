@@ -21,7 +21,7 @@ const DOMAIN_TYPOS: Record<string, string> = {
   'gmaill.co': 'gmail.com',
   'gmalil.com': 'gmail.com',
   'gemail.com': 'gmail.com',
-  'gmaill.com': 'gmail.com',
+  'gmailll.com': 'gmail.com',
   
   // Yahoo
   'yaho.com': 'yahoo.com',
@@ -183,7 +183,7 @@ export function suggestCorrections(email: string): AutocompleteSuggestion[] {
       'coom': 'com',
       'comm': 'com',
       'om': 'com',
-      'cim': 'com',
+      'ccom': 'com',
       'cok': 'com',
       'cor': 'com',
       'cot': 'com',
