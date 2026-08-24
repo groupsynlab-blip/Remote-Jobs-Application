@@ -62,7 +62,10 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
     );
   }
 
-  const fields = typeof page.form_fields === "string" ? JSON.parse(page.form_fields) : page.form_fields || ["email", "name"];
+  const rawFields = typeof page.form_fields === "string" ? JSON.parse(page.form_fields) : page.form_fields || ["email", "name"];
+  // Normalize: if fields are objects with {name, type, required}, use them directly
+  // If fields are strings like ["email", "name"], convert to objects
+  const fields = rawFields.map((f: any) => typeof f === "string" ? { name: f, type: f === "email" ? "email" : "text", required: f === "email" || f === "name" } : f);
 
   const fieldLabels: Record<string, string> = {
     name: "Full Name",
@@ -139,24 +142,41 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
         {/* Form */}
         {!result?.success && (
           <form onSubmit={handleSubmit}>
-            {fields.map((field: string) => {
-              const isTextarea = field === "message";
+            {fields.map((field: any) => {
+              const fieldName = field.name || field;
+              const fieldType = field.type || "text";
+              const fieldRequired = field.required || false;
+              const fieldOptions = field.options || [];
+              const isTextarea = fieldType === "textarea";
+              const isSelect = fieldType === "select";
               return (
-                <div key={field} style={{ marginBottom: "1rem" }}>
+                <div key={fieldName} style={{ marginBottom: "1rem" }}>
                   <label style={{
                     display: "block", color: "#cbd5e1", fontSize: "0.8rem",
                     fontWeight: 600, marginBottom: "0.35rem", textTransform: "uppercase",
                     letterSpacing: "0.05em",
                   }}>
-                    {fieldLabels[field] || field} {field === "email" || field === "name" ? "*" : ""}
+                    {fieldLabels[fieldName] || fieldName} {fieldName === "email" || fieldName === "name" ? "*" : ""}
                   </label>
-                  {isTextarea ? (
+                  {isSelect ? (
+                    <select
+                      required={fieldRequired}
+                      value={formData[fieldName] || ""}
+                      onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
+                      style={{ width: "100%", padding: "0.75rem 1rem", borderRadius: "0.5rem", border: "1px solid rgba(148, 163, 184, 0.2)", background: "rgba(15, 23, 42, 0.6)", color: "#f1f5f9", fontSize: "0.9rem", outline: "none" }}
+                    >
+                      <option value="">Select...</option>
+                      {fieldOptions.map((opt: string) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : isTextarea ? (
                     <textarea
-                      required={false}
+                      required={fieldRequired}
                       rows={4}
-                      placeholder={`Your ${fieldLabels[field] || field}...`}
-                      value={formData[field] || ""}
-                      onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
+                      placeholder={`Your ${fieldLabels[fieldName] || fieldName}...`}
+                      value={formData[fieldName] || ""}
+                      onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
                       style={{
                         width: "100%", padding: "0.7rem 0.9rem", borderRadius: "0.5rem",
                         border: "1px solid rgba(148, 163, 184, 0.2)", fontSize: "0.85rem",
@@ -167,11 +187,11 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
                     />
                   ) : (
                     <input
-                      type={fieldTypes[field] || "text"}
-                      required={field === "email" || field === "name"}
-                      placeholder={`Your ${fieldLabels[field] || field}...`}
-                      value={formData[field] || ""}
-                      onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
+                      type={isSelect ? undefined : (fieldTypes[fieldName] || fieldType)}
+                      required={fieldName === "email" || fieldName === "name"}
+                      placeholder={`Your ${fieldLabels[fieldName] || fieldName}...`}
+                      value={formData[fieldName] || ""}
+                      onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
                       style={{
                         width: "100%", padding: "0.7rem 0.9rem", borderRadius: "0.5rem",
                         border: "1px solid rgba(148, 163, 184, 0.2)", fontSize: "0.85rem",
