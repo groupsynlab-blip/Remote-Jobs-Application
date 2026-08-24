@@ -243,43 +243,73 @@ export default function LandingPagesPage() {
       </div>
 
       {/* Preview Modal */}
-      {previewPage && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex",
-          alignItems: "center", justifyContent: "center", zIndex: 1000,
-        }} onClick={() => setPreviewPage(null)}>
+      {previewPage && (() => {
+        const publicUrl = `${window.location.origin}/landing-pages/public/${previewPage.slug}`;
+        return (
           <div style={{
-            background: "#fff", borderRadius: "1rem", width: "90%", maxWidth: "500px",
-            padding: "2rem", position: "relative",
-          }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setPreviewPage(null)} style={{
-              position: "absolute", top: "1rem", right: "1rem", background: "none",
-              border: "none", fontSize: "1.25rem", cursor: "pointer",
-            }}>✕</button>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>{previewPage.title}</h2>
-            <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1.5rem" }}>{previewPage.description}</p>
-            <form onSubmit={e => { e.preventDefault(); alert(previewPage.success_message); }} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {(() => { const raw = typeof previewPage.form_fields === 'string' ? JSON.parse(previewPage.form_fields) : previewPage.form_fields || ['email','name']; return raw.map((f: any) => { const fieldName = f.name || f; const fieldType = f.type || 'text'; const fieldRequired = f.required || false; const fieldOptions = f.options || []; const label = ({name:'Full Name',email:'Email Address',phone:'Phone Number',address:'Address',experience:'Years of Experience',availability:'Availability',portfolio:'Portfolio / LinkedIn URL',message:'Message'} as any)[fieldName] || fieldName; return (
-                <div key={field}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "capitalize" }}>
-                    {field}
-                  </label>
-                  <input type={field === "email" ? "email" : "text"} placeholder={`Enter ${field}`}
-                    style={{
-                      width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem",
-                      border: "1px solid #ddd", fontSize: "0.875rem", boxSizing: "border-box",
-                    }} required={field === "email"} />
-                </div>
-              ))}
-              <button type="submit" style={{
-                padding: "0.75rem", borderRadius: "0.5rem", border: "none",
-                background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff",
-                fontWeight: 600, cursor: "pointer", fontSize: "0.875rem", marginTop: "0.5rem",
-              }}>Submit</button>
-            </form>
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex",
+            alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }} onClick={() => setPreviewPage(null)}>
+            <div style={{
+              background: "#fff", borderRadius: "1rem", width: "90%", maxWidth: "600px",
+              padding: "2rem", position: "relative",
+            }} onClick={e => e.stopPropagation()}>
+              <button onClick={() => setPreviewPage(null)} style={{
+                position: "absolute", top: "1rem", right: "1rem", background: "none",
+                border: "none", fontSize: "1.25rem", cursor: "pointer",
+              }}>✕</button>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>{previewPage.title}</h2>
+              <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1rem" }}>{previewPage.description}</p>
+
+              {/* Public URL */}
+              <div style={{ background: "#f1f5f9", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.75rem", color: "#666", flexShrink: 0 }}>Public URL:</span>
+                <a href={publicUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "#6366f1", wordBreak: "break-all", textDecoration: "underline" }}>
+                  {publicUrl}
+                </a>
+              </div>
+
+              {/* Form preview */}
+              <form onSubmit={e => {{ e.preventDefault(); alert(previewPage.success_message); }} } style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {(() => {{
+                  const raw = typeof previewPage.form_fields === "string" ? JSON.parse(previewPage.form_fields) : previewPage.form_fields || ["email","name"];
+                  return raw.map((f: any) => {{
+                    const fieldName = f.name || f;
+                    const fieldType = f.type || "text";
+                    const fieldRequired = f.required || false;
+                    const fieldOptions = f.options || [];
+                    const labelMap: Record<string, string> = {{ name: "Full Name", email: "Email Address", phone: "Phone Number", address: "Address", experience: "Years of Experience", availability: "Availability", portfolio: "Portfolio URL", message: "Message" }};
+                    const label = labelMap[fieldName] || fieldName;
+                    return (
+                      <div key={{fieldName}}>
+                        <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>
+                          {{label}} {{fieldRequired ? "*" : ""}}
+                        </label>
+                        {{fieldType === "select" ? (
+                          <select required={{fieldRequired}} style={{{{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #ddd", fontSize: "0.875rem", boxSizing: "border-box" }}}}>
+                            <option value="">Select...</option>
+                            {{fieldOptions.map((opt: string) => <option key={{opt}} value={{opt}}>{{opt}}</option>)}}
+                          </select>
+                        ) : fieldType === "textarea" ? (
+                          <textarea rows={{3}} placeholder={{`Enter ${{label.toLowerCase()}}`}} style={{{{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #ddd", fontSize: "0.875rem", boxSizing: "border-box", resize: "vertical" }}}} />
+                        ) : (
+                          <input type={{fieldType === "tel" ? "tel" : fieldType === "url" ? "url" : fieldType}} placeholder={{`Enter ${{label.toLowerCase()}}`}}
+                            style={{{{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #ddd", fontSize: "0.875rem", boxSizing: "border-box" }}}} required={{fieldRequired}} />
+                        )}}
+                      </div>
+                    );
+                  }});
+                }})()}
+                <button type="submit" style={{
+                  padding: "0.75rem", borderRadius: "0.5rem", border: "none",
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff",
+                  fontWeight: 600, cursor: "pointer", fontSize: "0.875rem", marginTop: "0.5rem",
+                }}>Submit</button>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
