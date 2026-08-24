@@ -811,11 +811,6 @@ export default function ComposePage() {
               <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.375rem" }}>
                 Contact List *
               </label>
-            {/* Contact List */}
-            <div>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.375rem" }}>
-                Contact List *
-              </label>
               <select className="input" value={form.contact_list_id}
                 onChange={(e) => setForm({ ...form, contact_list_id: e.target.value })}>
                 <option value="">Select a contact list...</option>
