@@ -80,7 +80,7 @@ export default function LandingPagesPage() {
   };
 
   const copyEmbedCode = (page: LandingPage) => {
-    const code = `<iframe src="${window.location.origin}/api/landing-pages/public/${page.slug}" width="100%" height="600" frameborder="0"></iframe>`;
+    const code = `<iframe src="${window.location.origin}/landing-pages/public/${page.slug}" width="100%" height="600" frameborder="0"></iframe>`;
     navigator.clipboard.writeText(code);
     alert("Embed code copied!");
   };
@@ -259,7 +259,7 @@ export default function LandingPagesPage() {
             <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>{previewPage.title}</h2>
             <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1.5rem" }}>{previewPage.description}</p>
             <form onSubmit={e => { e.preventDefault(); alert(previewPage.success_message); }} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {JSON.parse(previewPage.form_fields || '["email","name"]').map((field: string) => (
+              {(() => { const raw = typeof previewPage.form_fields === 'string' ? JSON.parse(previewPage.form_fields) : previewPage.form_fields || ['email','name']; return raw.map((f: any) => { const fieldName = f.name || f; const fieldType = f.type || 'text'; const fieldRequired = f.required || false; const fieldOptions = f.options || []; const label = ({name:'Full Name',email:'Email Address',phone:'Phone Number',address:'Address',experience:'Years of Experience',availability:'Availability',portfolio:'Portfolio / LinkedIn URL',message:'Message'} as any)[fieldName] || fieldName; return (
                 <div key={field}>
                   <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "capitalize" }}>
                     {field}
