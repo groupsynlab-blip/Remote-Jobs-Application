@@ -62,46 +62,33 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
     );
   }
 
-  // Parse form_fields - handle both string and object formats
+  // Parse fields - handle both string and object formats
   const rawFields = typeof page.form_fields === "string" ? JSON.parse(page.form_fields) : page.form_fields || ["email", "name"];
-  const fields = rawFields.map((f: any) =>
-    typeof f === "string"
-      ? { name: f, type: f === "email" ? "email" : "text", required: f === "email" || f === "name" }
-      : f
-  );
-
-  const fieldLabels: Record<string, string> = {
-    name: "Full Name",
-    email: "Email Address",
-    phone: "Phone Number",
-    address: "Address",
-    company: "Current Company",
-    location: "Location",
-    experience: "Years of Experience",
-    portfolio: "Portfolio / LinkedIn URL",
-    availability: "Availability",
-    message: "Tell us about yourself",
-  };
+  
+  const parsedFields = rawFields.map((field: any, i: number) => {
+    if (typeof field === "string") {
+      return { name: field, type: field === "email" ? "email" : "text", required: field === "email" || field === "name" };
+    }
+    return {
+      name: field.name || `field_${i}`,
+      type: field.type || "text",
+      required: !!field.required,
+      options: field.options || [],
+    };
+  });
 
   return (
     <div style={{
       minHeight: "100vh",
       background: "linear-gradient(135deg, #0f172a, #1e293b, #334155)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "2rem",
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "2rem", fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
     }}>
       <div style={{
-        maxWidth: "520px",
-        width: "100%",
-        background: "rgba(30, 41, 59, 0.8)",
-        backdropFilter: "blur(20px)",
-        border: "1px solid rgba(148, 163, 184, 0.15)",
-        borderRadius: "1rem",
-        padding: "2.5rem",
-        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+        maxWidth: "520px", width: "100%",
+        background: "rgba(30, 41, 59, 0.8)", backdropFilter: "blur(20px)",
+        border: "1px solid rgba(148, 163, 184, 0.15)", borderRadius: "1rem",
+        padding: "2.5rem", boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
       }}>
         {/* Header */}
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
@@ -140,71 +127,62 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
         {/* Form */}
         {!result?.success && (
           <form onSubmit={handleSubmit}>
-            {fields.map((field: any) => {
-              const fieldName = field.name || field;
-              const fieldType = field.type || "text";
-              const fieldRequired = field.required || false;
-              const fieldOptions = field.options || [];
-              const isTextarea = fieldType === "textarea";
-              const isSelect = fieldType === "select";
-              const label = fieldLabels[fieldName] || fieldName;
-
-              return (
-                <div key={fieldName} style={{ marginBottom: "1rem" }}>
-                  <label style={{
-                    display: "block", color: "#cbd5e1", fontSize: "0.8rem",
-                    fontWeight: 600, marginBottom: "0.35rem", textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                  }}>
-                    {label} {fieldRequired ? "*" : ""}
-                  </label>
-
-                  {isSelect ? (
+            {parsedFields.map((field: any) => {
+              const label = field.name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+              const inputType = field.type === "tel" ? "tel" : field.type === "url" ? "url" : field.type === "email" ? "email" : "text";
+              
+              if (field.type === "textarea") {
+                return (
+                  <div key={field.name} style={{ marginBottom: "1rem" }}>
+                    <label style={{ display: "block", color: "#cbd5e1", fontSize: "0.8rem", fontWeight: 600, marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {label} {field.required ? "*" : ""}
+                    </label>
+                    <textarea
+                      required={field.required}
+                      rows={4}
+                      placeholder={`Your ${label}...`}
+                      value={formData[field.name] || ""}
+                      onChange={(e) => setFormData({ ...formData, [field.name]: e.target.value })}
+                      style={{ width: "100%", padding: "0.7rem 0.9rem", borderRadius: "0.5rem", border: "1px solid rgba(148, 163, 184, 0.2)", fontSize: "0.85rem", background: "rgba(15, 23, 42, 0.6)", color: "#e2e8f0", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" as const }}
+                    />
+                  </div>
+                );
+              }
+              
+              if (field.type === "select" && field.options?.length) {
+                return (
+                  <div key={field.name} style={{ marginBottom: "1rem" }}>
+                    <label style={{ display: "block", color: "#cbd5e1", fontSize: "0.8rem", fontWeight: 600, marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {label} {field.required ? "*" : ""}
+                    </label>
                     <select
-                      required={fieldRequired}
-                      value={formData[fieldName] || ""}
-                      onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
-                      style={{
-                        width: "100%", padding: "0.75rem 1rem", borderRadius: "0.5rem",
-                        border: "1px solid rgba(148, 163, 184, 0.2)", background: "rgba(15, 23, 42, 0.6)",
-                        color: "#f1f5f9", fontSize: "0.9rem", outline: "none",
-                      }}
+                      required={field.required}
+                      value={formData[field.name] || ""}
+                      onChange={(e) => setFormData({ ...formData, [field.name]: e.target.value })}
+                      style={{ width: "100%", padding: "0.7rem 0.9rem", borderRadius: "0.5rem", border: "1px solid rgba(148, 163, 184, 0.2)", fontSize: "0.85rem", background: "rgba(15, 23, 42, 0.6)", color: "#e2e8f0", outline: "none", boxSizing: "border-box" as const }}
                     >
                       <option value="">Select {label}...</option>
-                      {fieldOptions.map((opt: string) => (
+                      {field.options.map((opt: string) => (
                         <option key={opt} value={opt}>{opt}</option>
                       ))}
                     </select>
-                  ) : isTextarea ? (
-                    <textarea
-                      required={fieldRequired}
-                      rows={4}
-                      placeholder={`Your ${label.toLowerCase()}...`}
-                      value={formData[fieldName] || ""}
-                      onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
-                      style={{
-                        width: "100%", padding: "0.7rem 0.9rem", borderRadius: "0.5rem",
-                        border: "1px solid rgba(148, 163, 184, 0.2)", fontSize: "0.85rem",
-                        background: "rgba(15, 23, 42, 0.6)", color: "#e2e8f0",
-                        outline: "none", resize: "vertical", fontFamily: "inherit",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                  ) : (
-                    <input
-                      type={fieldType === "tel" ? "tel" : fieldType === "url" ? "url" : fieldType}
-                      required={fieldRequired}
-                      placeholder={`Your ${label.toLowerCase()}...`}
-                      value={formData[fieldName] || ""}
-                      onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
-                      style={{
-                        width: "100%", padding: "0.7rem 0.9rem", borderRadius: "0.5rem",
-                        border: "1px solid rgba(148, 163, 184, 0.2)", fontSize: "0.85rem",
-                        background: "rgba(15, 23, 42, 0.6)", color: "#e2e8f0",
-                        outline: "none", boxSizing: "border-box",
-                      }}
-                    />
-                  )}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={field.name} style={{ marginBottom: "1rem" }}>
+                  <label style={{ display: "block", color: "#cbd5e1", fontSize: "0.8rem", fontWeight: 600, marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    {label} {field.required ? "*" : ""}
+                  </label>
+                  <input
+                    type={inputType}
+                    required={field.required}
+                    placeholder={`Your ${label}...`}
+                    value={formData[field.name] || ""}
+                    onChange={(e) => setFormData({ ...formData, [field.name]: e.target.value })}
+                    style={{ width: "100%", padding: "0.7rem 0.9rem", borderRadius: "0.5rem", border: "1px solid rgba(148, 163, 184, 0.2)", fontSize: "0.85rem", background: "rgba(15, 23, 42, 0.6)", color: "#e2e8f0", outline: "none", boxSizing: "border-box" as const }}
+                  />
                 </div>
               );
             })}
@@ -213,11 +191,12 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
               type="submit"
               disabled={submitting}
               style={{
-                width: "100%", padding: "0.85rem", borderRadius: "0.5rem", border: "none",
-                background: submitting ? "rgba(99, 102, 241, 0.5)" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                color: "#fff", fontSize: "0.95rem", fontWeight: 600, cursor: submitting ? "not-allowed" : "pointer",
-                marginTop: "0.5rem",
-                boxShadow: submitting ? "none" : "0 4px 15px rgba(99, 102, 241, 0.4)",
+                width: "100%", padding: "0.8rem", borderRadius: "0.5rem", border: "none",
+                background: "linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7)",
+                color: "#fff", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer",
+                marginTop: "0.5rem", letterSpacing: "0.02em",
+                boxShadow: "0 4px 15px rgba(99, 102, 241, 0.3)",
+                opacity: submitting ? 0.7 : 1,
               }}
             >
               {submitting ? "⏳ Submitting..." : "🚀 Submit Application"}
@@ -226,7 +205,7 @@ export default function PublicLandingPage({ params }: { params: Promise<{ slug: 
         )}
 
         {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: "1.5rem", color: "#475569", fontSize: "0.75rem" }}>
+        <div style={{ textAlign: "center", marginTop: "1.5rem", color: "#475569", fontSize: "0.7rem" }}>
           Powered by Bulk Emailer
         </div>
       </div>
