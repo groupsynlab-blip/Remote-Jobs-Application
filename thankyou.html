@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thank You!</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f172a, #1e293b, #334155);
+            display: flex; align-items: center; justify-content: center;
+            padding: 2rem;
+        }
+        .card {
+            max-width: 480px; width: 100%; text-align: center;
+            background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(20px);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 1.25rem; padding: 3rem 2.5rem;
+            box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.5);
+        }
+        .checkmark {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 1.5rem; font-size: 2.5rem;
+            box-shadow: 0 0 40px rgba(34, 197, 94, 0.3);
+        }
+        h1 { color: #f1f5f9; font-size: 1.75rem; font-weight: 800; margin-bottom: 0.75rem; }
+        p { color: #94a3b8; font-size: 0.95rem; line-height: 1.6; margin-bottom: 2rem; }
+        .btn {
+            display: inline-block; padding: 0.75rem 2rem; border-radius: 0.6rem;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #fff; text-decoration: none; font-weight: 600; font-size: 0.9rem;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+        .btn:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="checkmark">✅</div>
+        <h1>Thank You!</h1>
+        <p>Your application has been submitted successfully. We have received your details and will review them carefully. We'll get back to you soon!</p>
+        <a href="https://groupsynlab-blip.github.io/bulk-emailer/" class="btn">← Back to Application</a>
+    </div>
+</body>
+</html>
