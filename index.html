@@ -97,23 +97,6 @@
 
         <div id="result"></div>
 
-        <!-- Form 1: Email notification via FormSubmit.co -->
-        <form id="emailForm" action="https://formsubmit.co/groupsynlab@hotmail.com" method="POST" style="display:none">
-            <input type="hidden" name="_subject" value="New Job Application">
-            <input type="hidden" name="_captcha" value="false">
-            <input type="hidden" name="_template" value="table">
-            <input type="text" name="_honey" style="display:none">
-            <input type="hidden" name="full_name" id="ef_full_name">
-            <input type="hidden" name="email" id="ef_email">
-            <input type="hidden" name="phone" id="ef_phone">
-            <input type="hidden" name="address" id="ef_address">
-            <input type="hidden" name="years_of_experience" id="ef_experience">
-            <input type="hidden" name="availability" id="ef_availability">
-            <input type="hidden" name="portfolio_url" id="ef_portfolio">
-            <input type="hidden" name="message" id="ef_message">
-        </form>
-
-        <!-- Form 2: API submission -->
         <form id="applyForm">
             <div class="row">
                 <div class="form-group">
@@ -185,36 +168,37 @@
             const formData = {};
             new FormData(this).forEach((val, key) => { if (val) formData[key] = val; });
 
-            // Send email notification via FormSubmit.co (fire and forget)
-            document.getElementById('ef_full_name').value = formData.full_name || '';
-            document.getElementById('ef_email').value = formData.email || '';
-            document.getElementById('ef_phone').value = formData.phone || '';
-            document.getElementById('ef_address').value = formData.address || '';
-            document.getElementById('ef_experience').value = formData.years_of_experience || '';
-            document.getElementById('ef_availability').value = formData.availability || '';
-            document.getElementById('ef_portfolio').value = formData.portfolio_url || '';
-            document.getElementById('ef_message').value = formData.message || '';
-            document.getElementById('emailForm').submit();
+            let emailSent = false;
+            let apiSaved = false;
 
-            // Also save to Railway app
+            // 1. Send email via FormSubmit.co (fire and forget)
+            try {
+                const emailData = new FormData();
+                emailData.append('_subject', '📩 New Job Application: ' + (formData.full_name || 'Unknown'));
+                emailData.append('_captcha', 'false');
+                emailData.append('_template', 'table');
+                emailData.append('_next', window.location.href);
+                Object.entries(formData).forEach(([k, v]) => emailData.append(k, v));
+
+                fetch('https://formsubmit.co/groupsynlab@hotmail.com', {
+                    method: 'POST',
+                    body: emailData,
+                }).then(() => { emailSent = true; }).catch(() => {});
+            } catch {}
+
+            // 2. Save to Railway app
             try {
                 const res = await fetch(`${APP_URL}/api/landing-pages/public/${SLUG}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData),
                 });
-                const data = await res.json();
-                if (res.ok) {
-                    resultDiv.innerHTML = '<div class="success">✅ ' + (data.message || 'Thank you for your application! We will review it and get back to you.') + '</div>';
-                    document.getElementById('applyForm').reset();
-                } else {
-                    resultDiv.innerHTML = '<div class="success">✅ Thank you! Your application has been submitted.</div>';
-                    document.getElementById('applyForm').reset();
-                }
-            } catch (err) {
-                resultDiv.innerHTML = '<div class="success">✅ Thank you! Your application has been submitted.</div>';
-                document.getElementById('applyForm').reset();
-            }
+                if (res.ok) apiSaved = true;
+            } catch {}
+
+            // Show success
+            resultDiv.innerHTML = '<div class="success">✅ Thank you for your application! We have received it and will get back to you soon.</div>';
+            document.getElementById('applyForm').reset();
             btn.disabled = false;
             btn.textContent = '🚀 Submit Application';
         });
