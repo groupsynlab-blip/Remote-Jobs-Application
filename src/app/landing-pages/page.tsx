@@ -80,7 +80,7 @@ export default function LandingPagesPage() {
   };
 
   const copyEmbedCode = (page: LandingPage) => {
-    const code = `<iframe src="${window.location.origin}/api/landing-pages/public/${page.slug}" width="100%" height="600" frameborder="0"></iframe>`;
+    const code = `<iframe src="${window.location.origin}/landing-pages/public/${page.slug}" width="100%" height="600" frameborder="0"></iframe>`;
     navigator.clipboard.writeText(code);
     alert("Embed code copied!");
   };
@@ -265,18 +265,48 @@ export default function LandingPagesPage() {
               </a>
             </div>
             <form onSubmit={e => { e.preventDefault(); alert(previewPage.success_message); }} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {JSON.parse(previewPage.form_fields || '["email","name"]').map((field: string) => (
-                <div key={field}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "capitalize" }}>
-                    {field}
-                  </label>
-                  <input type={field === "email" ? "email" : "text"} placeholder={`Enter ${field}`}
-                    style={{
-                      width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem",
-                      border: "1px solid #ddd", fontSize: "0.875rem", boxSizing: "border-box",
-                    }} required={field === "email"} />
-                </div>
-              ))}
+              {(() => {
+                const fields = JSON.parse(previewPage.form_fields || '["email","name"]');
+                return fields.map((field: any, i: number) => {
+                  const name = typeof field === 'string' ? field : field.name || `field_${i}`;
+                  const type = typeof field === 'string' ? (field === 'email' ? 'email' : 'text') : (field.type || 'text');
+                  const required = typeof field === 'string' ? field === 'email' : !!field.required;
+                  if (type === 'select' && field.options) {
+                    return (
+                      <div key={name}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'capitalize' }}>
+                          {name.replace(/_/g, ' ')}{required && ' *'}
+                        </label>
+                        <select required={required} style={{ width: '100%', padding: '0.625rem 0.875rem', borderRadius: '0.5rem', border: '1px solid #ddd', fontSize: '0.875rem', boxSizing: 'border-box' }}>
+                          <option value="">Select...</option>
+                          {field.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      </div>
+                    );
+                  }
+                  if (type === 'textarea') {
+                    return (
+                      <div key={name}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'capitalize' }}>
+                          {name.replace(/_/g, ' ')}{required && ' *'}
+                        </label>
+                        <textarea placeholder={`Enter ${name.replace(/_/g, ' ')}`} required={required}
+                          style={{ width: '100%', padding: '0.625rem 0.875rem', borderRadius: '0.5rem', border: '1px solid #ddd', fontSize: '0.875rem', boxSizing: 'border-box', minHeight: '80px' }} />
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={name}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'capitalize' }}>
+                        {name.replace(/_/g, ' ')}{required && ' *'}
+                      </label>
+                      <input type={type === 'tel' ? 'tel' : type === 'url' ? 'url' : type === 'email' ? 'email' : 'text'}
+                        placeholder={`Enter ${name.replace(/_/g, ' ')}`} required={required}
+                        style={{ width: '100%', padding: '0.625rem 0.875rem', borderRadius: '0.5rem', border: '1px solid #ddd', fontSize: '0.875rem', boxSizing: 'border-box' }} />
+                    </div>
+                  );
+                });
+              })()}
               <button type="submit" style={{
                 padding: "0.75rem", borderRadius: "0.5rem", border: "none",
                 background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff",
