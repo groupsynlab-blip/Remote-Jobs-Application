@@ -1,10 +1,26 @@
 export async function register() {
-  // Only run in Node.js server runtime (not edge, not client)
-  // Use dynamic import to prevent Edge Runtime from trying to compile
-  // Node.js-only modules (better-sqlite3, path) in the scheduler import chain
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     console.log('[Instrumentation] Server starting — initializing background scheduler');
     const { startScheduler } = await import('./lib/scheduler');
     startScheduler();
+
+    // Gracefully close better-sqlite3 before process exits to prevent native crash
+    const cleanup = () => {
+      try {
+        const { getDb } = require('./lib/db');
+        const db = getDb();
+        if (db && typeof db.close === 'function') {
+          console.log('[Cleanup] Closing database gracefully...');
+          db.close();
+        }
+      } catch {
+        // ignore — db may already be closed
+      }
+      process.exit(0);
+    };
+
+    process.on('SIGTERM', cleanup);
+    process.on('SIGINT', cleanup);
+    process.on('beforeExit', cleanup);
   }
 }
