@@ -15,6 +15,10 @@ export function getDb(): Database.Database {
 
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
+    
+    // Migration: add phone/address columns if missing
+    try { db.exec("ALTER TABLE contacts ADD COLUMN phone TEXT DEFAULT ''"); } catch {}
+    try { db.exec("ALTER TABLE contacts ADD COLUMN address TEXT DEFAULT ''"); } catch {}
     db.pragma('foreign_keys = ON');
     initializeDb(db);
   }
@@ -35,6 +39,8 @@ function initializeDb(db: Database.Database) {
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL DEFAULT '',
+      phone TEXT DEFAULT '',
+      address TEXT DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 

@@ -26,7 +26,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (!page) return Response.json({ error: 'Not found' }, { status: 404 });
 
   const email = body.email || '';
-  const name = body.name || '';
+  const name = body.full_name || body.name || body.first_name || '';
+  const phone = body.phone || '';
+  const address = body.address || '';
   if (!email || !email.includes('@')) {
     return Response.json({ error: 'Valid email required' }, { status: 400 });
   }
@@ -44,7 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (page.target_list_id) {
     const contactId = uuidv4();
     try {
-      db.prepare('INSERT OR IGNORE INTO contacts (id, email, name) VALUES (?, ?, ?)').run(contactId, email, name);
+      db.prepare('INSERT OR IGNORE INTO contacts (id, email, name, phone, address) VALUES (?, ?, ?, ?, ?)').run(contactId, email, name, phone, address);
       const contact = db.prepare('SELECT id FROM contacts WHERE email = ?').get(email) as { id: string };
       if (contact) {
         db.prepare('INSERT OR IGNORE INTO contact_list_members (contact_list_id, contact_id) VALUES (?, ?)')
