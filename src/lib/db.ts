@@ -115,6 +115,16 @@ function initializeDb(db: Database.Database) {
       ip_address TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS email_bounces (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      bounce_type TEXT NOT NULL DEFAULT 'hard',
+      campaign_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_email_bounces_email ON email_bounces(email);
+
     CREATE TABLE IF NOT EXISTS unsubscribes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT NOT NULL,
