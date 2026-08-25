@@ -125,6 +125,14 @@ function initializeDb(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_email_bounces_email ON email_bounces(email);
 
+    CREATE TABLE IF NOT EXISTS domain_throttling (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT NOT NULL,
+      sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_domain_throttling_domain ON domain_throttling(domain);
+
     CREATE TABLE IF NOT EXISTS unsubscribes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT NOT NULL,
