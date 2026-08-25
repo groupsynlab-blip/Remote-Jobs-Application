@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getDb } from "@/lib/db";
 
 interface LandingPage {
   id: string;
@@ -20,6 +19,17 @@ interface LandingPage {
   created_at: string;
 }
 
+interface Submission {
+  id: number;
+  landing_page_id: string;
+  form_data: string;
+  email: string;
+  name: string;
+  ip_address: string;
+  user_agent: string;
+  created_at: string;
+}
+
 interface ContactList { id: string; name: string; }
 
 export default function LandingPagesPage() {
@@ -35,6 +45,11 @@ export default function LandingPagesPage() {
   const [successMessage, setSuccessMessage] = useState("Thank you for submitting!");
   const [targetListId, setTargetListId] = useState("");
   const [previewPage, setPreviewPage] = useState<LandingPage | null>(null);
+
+  // Submissions viewer state
+  const [viewingSubmissions, setViewingSubmissions] = useState<LandingPage | null>(null);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
 
   useEffect(() => {
     fetchPages();
@@ -80,9 +95,53 @@ export default function LandingPagesPage() {
   };
 
   const copyEmbedCode = (page: LandingPage) => {
-    const code = `<iframe src="${window.location.origin}/landing-pages/public/${page.slug}" width="100%" height="600" frameborder="0"></iframe>`;
+    const code = `<iframe src="${window.location.origin}/api/landing-pages/public/${page.slug}" width="100%" height="600" frameborder="0"></iframe>`;
     navigator.clipboard.writeText(code);
     alert("Embed code copied!");
+  };
+
+  // Fetch submissions for a landing page
+  const viewSubmissions = async (page: LandingPage) => {
+    setViewingSubmissions(page);
+    setSubmissionsLoading(true);
+    try {
+      const res = await fetch(`/api/landing-pages/${page.id}/submissions`);
+      const data = await res.json();
+      setSubmissions(data);
+    } catch {
+      setSubmissions([]);
+    } finally {
+      setSubmissionsLoading(false);
+    }
+  };
+
+  // Export submissions to CSV
+  const exportToCSV = () => {
+    if (!viewingSubmissions || submissions.length === 0) return;
+
+    const fields = JSON.parse(viewingSubmissions.form_fields || '["email","name"]');
+    const headers = ["Date", "Email", "Name", ...fields.filter((f: string) => f !== "email" && f !== "name"), "IP Address"];
+    const rows = submissions.map(sub => {
+      const formData = JSON.parse(sub.form_data || "{}");
+      const date = new Date(sub.created_at).toLocaleString();
+      const extraFields = fields
+        .filter((f: string) => f !== "email" && f !== "name")
+        .map((f: string) => formData[f] || "");
+      return [date, sub.email, sub.name, ...extraFields, sub.ip_address || ""];
+    });
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${viewingSubmissions.slug}-submissions-${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -218,7 +277,11 @@ export default function LandingPagesPage() {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
+              <button onClick={() => viewSubmissions(page)} style={{
+                padding: "0.375rem 0.75rem", borderRadius: "0.375rem", border: "1px solid rgba(99,102,241,0.3)",
+                background: "rgba(99,102,241,0.1)", color: "#6366f1", fontSize: "0.7rem", cursor: "pointer", fontWeight: 600,
+              }}>📝 View Submissions</button>
               <button onClick={() => copyEmbedCode(page)} style={{
                 padding: "0.375rem 0.75rem", borderRadius: "0.375rem", border: "1px solid var(--border)",
                 background: "transparent", fontSize: "0.7rem", cursor: "pointer",
@@ -242,6 +305,101 @@ export default function LandingPagesPage() {
         )}
       </div>
 
+      {/* Submissions Viewer Modal */}
+      {viewingSubmissions && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex",
+          alignItems: "center", justifyContent: "center", zIndex: 1000,
+        }} onClick={() => { setViewingSubmissions(null); setSubmissions([]); }}>
+          <div style={{
+            background: "var(--bg, #1e1e2e)", borderRadius: "1rem", width: "95%", maxWidth: "900px",
+            maxHeight: "85vh", display: "flex", flexDirection: "column", position: "relative",
+          }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{
+              padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border)",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div>
+                <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>
+                  📝 Submissions — {viewingSubmissions.name}
+                </h2>
+                <p style={{ fontSize: "0.75rem", color: "var(--muted)", margin: "0.25rem 0 0" }}>
+                  {submissions.length} submission{submissions.length !== 1 ? "s" : ""}
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button onClick={exportToCSV} disabled={submissions.length === 0} style={{
+                  padding: "0.5rem 1rem", borderRadius: "0.5rem", border: "1px solid rgba(34,197,94,0.3)",
+                  background: "rgba(34,197,94,0.1)", color: "#22c55e", fontSize: "0.75rem",
+                  cursor: submissions.length === 0 ? "not-allowed" : "pointer", fontWeight: 600,
+                  opacity: submissions.length === 0 ? 0.5 : 1,
+                }}>📥 Export CSV</button>
+                <button onClick={() => { setViewingSubmissions(null); setSubmissions([]); }} style={{
+                  background: "none", border: "none", fontSize: "1.25rem", cursor: "pointer",
+                  color: "var(--muted)",
+                }}>✕</button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div style={{ flex: 1, overflow: "auto", padding: "1rem 1.5rem" }}>
+              {submissionsLoading ? (
+                <div style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
+                  Loading submissions...
+                </div>
+              ) : submissions.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
+                  <p style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📭</p>
+                  <p>No submissions yet</p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {submissions.map(sub => {
+                    const formData = JSON.parse(sub.form_data || "{}");
+                    return (
+                      <div key={sub.id} style={{
+                        background: "var(--surface, #2a2a3e)", borderRadius: "0.75rem",
+                        padding: "1rem", border: "1px solid var(--border)",
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.5rem" }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+                              {sub.name || "Anonymous"}
+                            </div>
+                            <div style={{ fontSize: "0.8rem", color: "#6366f1" }}>{sub.email}</div>
+                          </div>
+                          <div style={{ fontSize: "0.65rem", color: "var(--muted)", textAlign: "right" }}>
+                            {new Date(sub.created_at).toLocaleString()}
+                            {sub.ip_address && <div>IP: {sub.ip_address}</div>}
+                          </div>
+                        </div>
+                        <div style={{
+                          display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                          gap: "0.5rem", marginTop: "0.5rem", fontSize: "0.75rem",
+                        }}>
+                          {Object.entries(formData).filter(([k]) => k !== "email" && k !== "name").map(([key, value]) => (
+                            <div key={key} style={{
+                              background: "var(--bg, #1e1e2e)", borderRadius: "0.375rem",
+                              padding: "0.5rem 0.75rem",
+                            }}>
+                              <div style={{ color: "var(--muted)", textTransform: "capitalize", marginBottom: "0.125rem" }}>
+                                {key.replace(/_/g, " ")}
+                              </div>
+                              <div style={{ fontWeight: 500 }}>{String(value || "—")}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Preview Modal */}
       {previewPage && (
         <div style={{
@@ -258,61 +416,28 @@ export default function LandingPagesPage() {
             }}>✕</button>
             <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>{previewPage.title}</h2>
             <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1.5rem" }}>{previewPage.description}</p>
-            <div style={{ background: "#f1f5f9", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem" }}>
-              <span style={{ fontSize: "0.75rem", color: "#666" }}>Public URL: </span>
-              <a href={"/landing-pages/public/" + previewPage.slug} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "#6366f1", textDecoration: "underline", wordBreak: "break-all" }}>
-                {`${typeof window !== "undefined" ? window.location.origin : ""}/landing-pages/public/${previewPage.slug}`}
-              </a>
-            </div>
             <form onSubmit={e => { e.preventDefault(); alert(previewPage.success_message); }} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {(() => {
-                const fields = JSON.parse(previewPage.form_fields || '["email","name"]');
-                return fields.map((field: any, i: number) => {
-                  const name = typeof field === 'string' ? field : field.name || `field_${i}`;
-                  const type = typeof field === 'string' ? (field === 'email' ? 'email' : 'text') : (field.type || 'text');
-                  const required = typeof field === 'string' ? field === 'email' : !!field.required;
-                  if (type === 'select' && field.options) {
-                    return (
-                      <div key={name}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'capitalize' }}>
-                          {name.replace(/_/g, ' ')}{required && ' *'}
-                        </label>
-                        <select required={required} style={{ width: '100%', padding: '0.625rem 0.875rem', borderRadius: '0.5rem', border: '1px solid #ddd', fontSize: '0.875rem', boxSizing: 'border-box' }}>
-                          <option value="">Select...</option>
-                          {field.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      </div>
-                    );
-                  }
-                  if (type === 'textarea') {
-                    return (
-                      <div key={name}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'capitalize' }}>
-                          {name.replace(/_/g, ' ')}{required && ' *'}
-                        </label>
-                        <textarea placeholder={`Enter ${name.replace(/_/g, ' ')}`} required={required}
-                          style={{ width: '100%', padding: '0.625rem 0.875rem', borderRadius: '0.5rem', border: '1px solid #ddd', fontSize: '0.875rem', boxSizing: 'border-box', minHeight: '80px' }} />
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={name}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem', textTransform: 'capitalize' }}>
-                        {name.replace(/_/g, ' ')}{required && ' *'}
-                      </label>
-                      <input type={type === 'tel' ? 'tel' : type === 'url' ? 'url' : type === 'email' ? 'email' : 'text'}
-                        placeholder={`Enter ${name.replace(/_/g, ' ')}`} required={required}
-                        style={{ width: '100%', padding: '0.625rem 0.875rem', borderRadius: '0.5rem', border: '1px solid #ddd', fontSize: '0.875rem', boxSizing: 'border-box' }} />
-                    </div>
-                  );
-                });
-              })()}
+              {JSON.parse(previewPage.form_fields || '["email","name"]').map((field: string) => (
+                <div key={field}>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "capitalize" }}>
+                    {field}
+                  </label>
+                  <input type={field === "email" ? "email" : "text"} placeholder={`Enter ${field}`}
+                    style={{
+                      width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem",
+                      border: "1px solid #ddd", fontSize: "0.875rem", boxSizing: "border-box",
+                    }} required={field === "email"} />
+                </div>
+              ))}
               <button type="submit" style={{
                 padding: "0.75rem", borderRadius: "0.5rem", border: "none",
                 background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff",
                 fontWeight: 600, cursor: "pointer", fontSize: "0.875rem", marginTop: "0.5rem",
               }}>Submit</button>
             </form>
+            <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#f1f5f9", borderRadius: "0.5rem", fontSize: "0.75rem", color: "#64748b" }}>
+              <strong>Public URL:</strong> {window.location.origin}/landing-pages/public/{previewPage.slug}
+            </div>
           </div>
         </div>
       )}

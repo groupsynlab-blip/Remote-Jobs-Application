@@ -47,6 +47,41 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/** PUT /api/landing-pages — update a landing page */
+export async function PUT(req: NextRequest) {
+  const body = await req.json();
+  const { id, name, slug, title, description, form_fields, success_message, target_list_id } = body;
+
+  if (!id) {
+    return Response.json({ error: 'id is required' }, { status: 400 });
+  }
+
+  const db = getDb();
+  db.prepare(`
+    UPDATE landing_pages SET
+      name = COALESCE(?, name),
+      slug = COALESCE(?, slug),
+      title = COALESCE(?, title),
+      description = COALESCE(?, description),
+      form_fields = COALESCE(?, form_fields),
+      success_message = COALESCE(?, success_message),
+      target_list_id = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    name || null,
+    slug ? slug.toLowerCase().replace(/[^a-z0-9-]/g, '-') : null,
+    title || null,
+    description || null,
+    form_fields ? JSON.stringify(form_fields) : null,
+    success_message || null,
+    target_list_id || null,
+    id
+  );
+
+  return Response.json({ ok: true });
+}
+
 /** DELETE /api/landing-pages?id=xxx */
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
