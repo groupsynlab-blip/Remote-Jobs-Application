@@ -14,7 +14,7 @@ import {
   recordDomainSend,
   isRateLimitError,
 } from '@/lib/email';
-import { isSchedulerPaused, pauseScheduler } from '@/lib/scheduler';
+import { isSchedulerPaused, pauseScheduler, resumeScheduler } from '@/lib/scheduler';
 
 /**
  * GET /api/campaigns/[id]/stream — SSE endpoint for real-time per-email sending.
@@ -182,10 +182,20 @@ export async function GET(
 
             const smtpConfig = rotator.next();
             if (!smtpConfig) {
+              // Mark campaign as paused so scheduler can auto-resume it
+              getDb().prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND status = 'sending'").run(id);
               pauseScheduler();
+              // Schedule auto-resume in 65 minutes (after hourly limit window resets)
+              setTimeout(() => {
+                const reenabled = reEnableExpiredLimits();
+                if (reenabled.length > 0) {
+                  resumeScheduler();
+                  console.log('[Stream] Auto-resumed after rate limits expired: ' + reenabled.join(', '));
+                }
+              }, 65 * 60 * 1000);
               send({ type: 'paused', sent: totalSent, failed: totalFailed,
                 remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
-                message: 'All SMTP servers hit their daily limits. Sending paused automatically.' });
+                message: 'All SMTP servers hit rate limits. Auto-resume scheduled in ~65 minutes.' });
               closed = true;
               break;
             }
@@ -279,12 +289,21 @@ export async function GET(
                   error: 'Rate limited - will retry with another SMTP',
                   server: smtpConfig.name || smtpConfig.host });
                   
-                // If no more SMTPs available, pause instead of failing
+                // If no more SMTPs available, mark campaign as paused and schedule auto-resume
                 if (rotator.availableCount === 0) {
+                  getDb().prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND status = 'sending'").run(id);
                   pauseScheduler();
+                  // Schedule auto-resume in 65 minutes (after hourly limit window resets)
+                  setTimeout(() => {
+                    const reenabled = reEnableExpiredLimits();
+                    if (reenabled.length > 0) {
+                      resumeScheduler();
+                      console.log('[Stream] Auto-resumed after rate limits expired: ' + reenabled.join(', '));
+                    }
+                  }, 65 * 60 * 1000);
                   send({ type: 'paused', sent: totalSent, failed: totalFailed,
                     remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
-                    message: 'All SMTP servers hit rate limits. Sending paused - emails will retry when limits expire.' });
+                    message: 'All SMTP servers hit rate limits. Auto-resume scheduled in ~65 minutes.' });
                   closed = true;
                   break;
                 }

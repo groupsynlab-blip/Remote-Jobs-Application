@@ -129,7 +129,14 @@ export function getSchedulerStatus() {
 async function checkAndSendScheduled(): Promise<void> {
   // Check pause and connectivity first
   if (schedulerPaused) {
-    return; // Scheduler is paused — don't process anything
+    // Auto-resume if SMTP limits have expired
+    const reenabled = reEnableExpiredLimits();
+    if (reenabled.length > 0) {
+      console.log('[Scheduler] Auto-resuming after SMTP limits expired: ' + reenabled.join(', '));
+      schedulerPaused = false;
+    } else {
+      return; // Still paused
+    }
   }
 
   if (isProcessing) {
@@ -146,6 +153,26 @@ async function checkAndSendScheduled(): Promise<void> {
     const reenabled = reEnableExpiredLimits();
     if (reenabled.length > 0) {
       console.log(`[Scheduler] 🔄 Re-enabled SMTP configs: ${reenabled.join(', ')}`);
+      // Auto-resume any paused campaigns that have queued emails
+      const pausedCampaigns = db.prepare(
+        "SELECT id, name FROM campaigns WHERE status = 'paused'"
+      ).all() as { id: string; name: string }[];
+      for (const pc of pausedCampaigns) {
+        const queued = db.prepare(
+          "SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'"
+        ).get(pc.id) as { count: number };
+        if (queued.count > 0) {
+          console.log(`[Scheduler] Auto-resuming paused campaign: ${pc.name} (${queued.count} emails remaining)`);
+          db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(pc.id);
+          try {
+            await processPausedCampaign(pc.id);
+          } catch (err: any) {
+            console.error(`[Scheduler] Error resuming campaign ${pc.name}:`, err.message);
+          }
+        } else {
+          db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ?").run(pc.id);
+        }
+      }
     }
 
     // Clean up old rate tracking rows periodically
@@ -485,6 +512,47 @@ async function sendBatch(
     remaining: remaining.count,
     done: remaining.count === 0,
   };
+}
+
+/**
+ * Process a paused campaign — send remaining queued emails.
+ * Called when SMTP limits expire and scheduler auto-resumes.
+ */
+async function processPausedCampaign(campaignId: string): Promise<void> {
+  const db = getDb();
+  const campaign = db.prepare(`
+    SELECT c.*, t.subject as template_subject, t.body as template_body
+    FROM campaigns c LEFT JOIN email_templates t ON c.template_id = t.id
+    WHERE c.id = ?
+  `).get(campaignId) as any;
+
+  if (!campaign || campaign.status !== 'sending') return;
+
+  console.log(`[Scheduler] Resuming campaign "${campaign.name}" — sending remaining emails`);
+
+  let allDone = false;
+  while (!allDone) {
+    if (schedulerPaused) {
+      db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND status = 'sending'").run(campaignId);
+      return;
+    }
+    const batchResult = await sendBatch(campaignId, campaign);
+    if (batchResult.done) {
+      allDone = true;
+      console.log(`[Scheduler] Campaign "${campaign.name}" — all emails sent!`);
+    } else if (batchResult.sent === 0 && batchResult.skipped > 0) {
+      db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND status = 'sending'").run(campaignId);
+      return;
+    } else {
+      await sleep(BATCH_DELAY_MS);
+    }
+  }
+  const remaining = db.prepare(
+    "SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'"
+  ).get(campaignId) as { count: number };
+  if (remaining.count === 0) {
+    db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ?").run(campaignId);
+  }
 }
 
 function sleep(ms: number): Promise<void> {
