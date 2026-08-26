@@ -10,6 +10,9 @@ export default function SettingsPage() {
   const [blacklist, setBlacklist] = useState<BlacklistItem[]>([]);
   const [newBlacklistEmail, setNewBlacklistEmail] = useState("");
   const [newBlacklistDomain, setNewBlacklistDomain] = useState("");
+  const [enableTracking, setEnableTracking] = useState(true);
+  const [enableUnsubscribe, setEnableUnsubscribe] = useState(true);
+  const [webhookEmail, setWebhookEmail] = useState("");
   const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "about">("general");
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
@@ -23,7 +26,19 @@ export default function SettingsPage() {
     });
     fetchBlacklist();
     fetchSmtpConfigs();
+    fetch("/api/settings").then(r => r.json()).then(d => {
+      setEnableTracking(d.enable_tracking !== "false");
+      setEnableUnsubscribe(d.enable_unsubscribe !== "false");
+      setWebhookEmail(d.webhook_email_recipient || "");
+    });
   }, []);
+
+  const saveTrackingSettings = async () => {
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "enable_tracking", value: String(enableTracking) }) });
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "enable_unsubscribe", value: String(enableUnsubscribe) }) });
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "webhook_email_recipient", value: webhookEmail }) });
+    alert("Tracking settings saved!");
+  };
 
   const fetchSmtpConfigs = () => {
     fetch("/api/smtp").then(r => r.json()).then(d => setSmtpConfigs(Array.isArray(d) ? d : d.configs || []));
