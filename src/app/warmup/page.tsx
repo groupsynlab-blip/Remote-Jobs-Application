@@ -33,7 +33,7 @@ export default function WarmupPage() {
 
   useEffect(() => {
     fetchWarmups();
-    fetch("/api/smtp").then(r => r.json()).then(d => setSmtpConfigs(d.configs || [])).catch(() => {});
+    fetch("/api/smtp").then(r => r.json()).then(d => setSmtpConfigs(Array.isArray(d) ? d : d.configs || [])).catch(() => {});
   }, []);
 
   const fetchWarmups = () => {

@@ -45,7 +45,7 @@ export default function AbTestsPage() {
 
   useEffect(() => {
     fetchTests();
-    fetch("/api/campaigns").then(r => r.json()).then(d => setCampaigns(d.campaigns || [])).catch(() => {});
+    fetch("/api/campaigns").then(r => r.json()).then(d => setCampaigns(Array.isArray(d) ? d : d.campaigns || [])).catch(() => {});
   }, []);
 
   const fetchTests = () => {
@@ -133,7 +133,7 @@ export default function AbTestsPage() {
               <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Campaign</label>
               <select value={selectedCampaign} onChange={e => setSelectedCampaign(e.target.value)} className="input">
                 <option value="">Select campaign...</option>
-                {campaigns.filter(c => c.status === "draft").map(c => (
+                {campaigns.filter(c => c.status === "draft" || c.status === "scheduled").map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
