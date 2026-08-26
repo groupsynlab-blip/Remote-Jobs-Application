@@ -17,6 +17,7 @@ import {
   wasAlreadySent,
 } from '@/lib/email';
 import { isSchedulerPaused, pauseScheduler, resumeScheduler } from '@/lib/scheduler';
+import { alertHourlyLimitHit, alertConnectionFailed, alertAllExhausted } from '@/lib/alerts';
 
 /**
  * GET /api/campaigns/[id]/stream — SSE endpoint for real-time per-email sending.
@@ -187,6 +188,7 @@ export async function GET(
               // Mark campaign as paused so scheduler can auto-resume it
               getDb().prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND status = 'sending'").run(id);
               pauseScheduler();
+              alertAllExhausted(getEnabledSmtpConfigs().length, totalQueued.count - totalSent - totalFailed - totalSkipped).catch(() => {});
               // Schedule auto-resume in 65 minutes (after hourly limit window resets)
               setTimeout(() => {
                 const reenabled = reEnableExpiredLimits();
@@ -282,6 +284,8 @@ export async function GET(
               if (isRateLimitError(error)) {
                 // Auto-disable this SMTP config so it's not used again this hour
                 getDb().prepare("UPDATE smtp_config SET enabled = 0, updated_at = datetime('now') WHERE id = ?").run(smtpConfig.id);
+                // Send alert about hourly limit
+                alertHourlyLimitHit(smtpConfig.name || smtpConfig.from_email, smtpConfig.from_email, 100, smtpConfig.hourly_limit).catch(() => {});
                 // Rebuild rotator without this config
                 rotator = new SmtpRotator(getEnabledSmtpConfigs());
                 
@@ -318,6 +322,8 @@ export async function GET(
                 "UPDATE email_logs SET status = 'failed', error_message = ?, smtp_config_id = ? WHERE id = ?"
               ).run(error.message || 'Unknown error', smtpConfig.id, emailLog.id);
               totalFailed++;
+              // Send connection failure alert
+              alertConnectionFailed(smtpConfig.name || smtpConfig.from_email, smtpConfig.from_email, error.message || 'Unknown error').catch(() => {});
 
               send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped,
                 remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,

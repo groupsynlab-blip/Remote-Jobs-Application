@@ -88,14 +88,20 @@ export default function HistoryPage() {
         ))}
       </div>
 
-      {/* Export Button */}
-      <div style={{ marginBottom: "1rem" }}>
+      {/* Export Buttons */}
+      <div style={{ marginBottom: "1rem", display: "flex", gap: "0.5rem" }}>
         <a href="/api/analytics/export?format=csv" download style={{
           display: "inline-flex", alignItems: "center", gap: "0.5rem",
           padding: "0.5rem 1rem", borderRadius: "0.5rem", border: "1px solid var(--border)",
           background: "var(--bg-card-solid)", color: "var(--fg-secondary)",
           fontWeight: 600, fontSize: "0.8rem", textDecoration: "none",
         }}>📥 Export Analytics (CSV)</a>
+        <a href="/api/smtp-health/report?days=30" target="_blank" style={{
+          display: "inline-flex", alignItems: "center", gap: "0.5rem",
+          padding: "0.5rem 1rem", borderRadius: "0.5rem", border: "1px solid var(--accent)",
+          background: "var(--accent)", color: "#fff",
+          fontWeight: 600, fontSize: "0.8rem", textDecoration: "none",
+        }}>📄 SMTP Delivery Report (PDF)</a>
       </div>
 
       {/* Campaign List */}

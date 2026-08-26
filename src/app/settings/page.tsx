@@ -15,6 +15,8 @@ export default function SettingsPage() {
   const [webhookEmail, setWebhookEmail] = useState("");
   const [slackWebhook, setSlackWebhook] = useState("");
   const [discordWebhook, setDiscordWebhook] = useState("");
+  const [smtpAlertsEnabled, setSmtpAlertsEnabled] = useState(false);
+  const [smtpAlertEmail, setSmtpAlertEmail] = useState("");
   const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "about">("general");
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
@@ -34,6 +36,8 @@ export default function SettingsPage() {
       setWebhookEmail(d.webhook_email_recipient || "");
       setSlackWebhook(d.slack_webhook_url || "");
       setDiscordWebhook(d.discord_webhook_url || "");
+      setSmtpAlertsEnabled(d.smtp_alerts_enabled === "true");
+      setSmtpAlertEmail(d.smtp_alert_email || "");
     });
   }, []);
 
@@ -41,6 +45,12 @@ export default function SettingsPage() {
     await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "slack_webhook_url", value: slackWebhook }) });
     await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "discord_webhook_url", value: discordWebhook }) });
     alert("Webhook settings saved!");
+  };
+
+  const saveAlertSettings = async () => {
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "smtp_alerts_enabled", value: String(smtpAlertsEnabled) }) });
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "smtp_alert_email", value: smtpAlertEmail }) });
+    alert("Alert settings saved!");
   };
 
   const saveTrackingSettings = async () => {
@@ -138,6 +148,37 @@ export default function SettingsPage() {
               <input className="input" value={appUrl} onChange={e => setAppUrl(e.target.value)} placeholder="https://your-app.up.railway.app" />
               <button className="btn btn-primary" onClick={saveAppUrl}>Save</button>
             </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "1rem" }}>
+            <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.75rem" }}>🔔 SMTP Alerts</h3>
+            <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.75rem" }}>Get email alerts when SMTP accounts hit limits or fail to connect</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>Enable SMTP Alerts</div>
+                <p style={{ fontSize: "0.7rem", color: "var(--muted)" }}>Alerts for daily/hourly limit hits and connection failures</p>
+              </div>
+              <button onClick={() => setSmtpAlertsEnabled(!smtpAlertsEnabled)} style={{
+                width: "48px", height: "26px", borderRadius: "13px", border: "none",
+                background: smtpAlertsEnabled ? "#10b981" : "var(--border)", cursor: "pointer",
+                position: "relative", transition: "background 0.2s",
+              }}>
+                <span style={{
+                  position: "absolute", top: "3px", left: smtpAlertsEnabled ? "25px" : "3px",
+                  width: "20px", height: "20px", borderRadius: "50%", background: "#fff",
+                  transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }} />
+              </button>
+            </div>
+            {smtpAlertsEnabled && (
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Alert Email</label>
+                  <input className="input" value={smtpAlertEmail} onChange={e => setSmtpAlertEmail(e.target.value)} placeholder="your@email.com" />
+                </div>
+                <button className="btn btn-primary" onClick={saveAlertSettings} style={{ height: "36px" }}>Save Alerts</button>
+              </div>
+            )}
           </div>
 
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: "1rem" }}>

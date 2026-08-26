@@ -154,6 +154,18 @@ export default function SmtpHealthPage() {
           >
             🔄 Refresh
           </button>
+          <a
+            href={`/api/smtp-health/report?days=${daysFilter}${selectedSmtp ? `&smtp_id=${selectedSmtp}` : ''}`}
+            target="_blank"
+            style={{
+              padding: "0.4rem 0.75rem", borderRadius: "0.5rem",
+              border: "1px solid var(--accent)", background: "var(--accent)",
+              color: "#fff", fontSize: "0.8rem", cursor: "pointer",
+              textDecoration: "none", fontWeight: 600,
+            }}
+          >
+            📄 Download Report
+          </a>
         </div>
       </div>
 
