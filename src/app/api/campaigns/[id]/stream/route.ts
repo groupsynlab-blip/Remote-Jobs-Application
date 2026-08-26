@@ -12,6 +12,7 @@ import {
   hasHardBounced,
   isDomainThrottled,
   recordDomainSend,
+  isRateLimitError,
 } from '@/lib/email';
 import { isSchedulerPaused, pauseScheduler } from '@/lib/scheduler';
 
@@ -265,6 +266,33 @@ export async function GET(
                 email: emailLog.contact_email, status: 'sent',
                 subject: mailOptions.subject as string, server: smtpConfig.name || smtpConfig.host });
             } catch (error: any) {
+              // Rate limit errors: keep email queued so it can be retried with another SMTP
+              if (isRateLimitError(error)) {
+                // Auto-disable this SMTP config so it's not used again this hour
+                getDb().prepare("UPDATE smtp_config SET enabled = 0, updated_at = datetime('now') WHERE id = ?").run(smtpConfig.id);
+                // Rebuild rotator without this config
+                rotator = new SmtpRotator(getEnabledSmtpConfigs());
+                
+                send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped,
+                  remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
+                  email: emailLog.contact_email, status: 'skipped',
+                  error: 'Rate limited - will retry with another SMTP',
+                  server: smtpConfig.name || smtpConfig.host });
+                  
+                // If no more SMTPs available, pause instead of failing
+                if (rotator.availableCount === 0) {
+                  pauseScheduler();
+                  send({ type: 'paused', sent: totalSent, failed: totalFailed,
+                    remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
+                    message: 'All SMTP servers hit rate limits. Sending paused - emails will retry when limits expire.' });
+                  closed = true;
+                  break;
+                }
+                // Don't count as failed - email stays queued for retry
+                continue;
+              }
+              
+              // Other errors: mark as failed (permanent error)
               db.prepare(
                 "UPDATE email_logs SET status = 'failed', error_message = ?, smtp_config_id = ? WHERE id = ?"
               ).run(error.message || 'Unknown error', smtpConfig.id, emailLog.id);

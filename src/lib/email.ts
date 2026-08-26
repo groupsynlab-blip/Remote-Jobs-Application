@@ -67,6 +67,42 @@ export function isSmtpRateLimited(config: SmtpConfig): { limited: boolean; reaso
   return { limited: false };
 }
 
+/** Check if an error is a rate limit / throttling error from the SMTP server */
+export function isRateLimitError(error: any): boolean {
+  const msg = (error.message || '').toLowerCase();
+  const code = (error.code || '').toLowerCase();
+  // Gmail/Outlook rate limit responses
+  if (msg.includes('421') || msg.includes('429') || msg.includes('550') ||
+      msg.includes('rate') || msg.includes('throttl') ||
+      msg.includes('too many') || msg.includes('limit exceeded') ||
+      msg.includes('try again later') || msg.includes('sender rate') ||
+      msg.includes('exceeded per hour') || msg.includes('daily user sending quota')) {
+    return true;
+  }
+  // nodemailer error codes for rate limiting
+  if (code === 'ethrottling' || code === 'emesg' || code === 'enotready') {
+    return true;
+  }
+  return false;
+}
+
+/** Check if an SMTP config is near its hourly or daily limit (within threshold) */
+export function isSmtpNearLimit(config: SmtpConfig, threshold: number = 5): { near: boolean; reason?: string } {
+  if (config.hourly_limit > 0) {
+    const { hourly_used } = getSmtpRateUsage(config.id);
+    if (hourly_used >= config.hourly_limit - threshold) {
+      return { near: true, reason: `Hourly: ${hourly_used}/${config.hourly_limit}` };
+    }
+  }
+  if (config.daily_limit > 0) {
+    const { daily_used } = getSmtpRateUsage(config.id);
+    if (daily_used >= config.daily_limit - threshold) {
+      return { near: true, reason: `Daily: ${daily_used}/${config.daily_limit}` };
+    }
+  }
+  return { near: false };
+}
+
 export function recordSmtpSend(smtpConfigId: string): void {
   getDb().prepare(
     `INSERT INTO smtp_rate_tracking (smtp_config_id, sent_at) VALUES (?, datetime('now'))`
@@ -130,7 +166,12 @@ export class SmtpRotator {
 
   constructor(configs: SmtpConfig[]) {
     for (const c of configs) {
-      if (!isSmtpRateLimited(c).limited) this.available.push(c);
+      const rateLimited = isSmtpRateLimited(c);
+      const nearLimit = isSmtpNearLimit(c, 5);
+      // Include config only if not rate-limited AND not near limit
+      if (!rateLimited.limited && !nearLimit.near) {
+        this.available.push(c);
+      }
     }
   }
 
