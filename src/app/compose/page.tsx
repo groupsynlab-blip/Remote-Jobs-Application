@@ -108,6 +108,10 @@ export default function ComposePage() {
   const [useSubjectRotation, setUseSubjectRotation] = useState(false);
   const [useTemplateRotation, setUseTemplateRotation] = useState(false);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [useAbTesting, setUseAbTesting] = useState(false);
+  const [abVariantA, setAbVariantA] = useState("");
+  const [abVariantB, setAbVariantB] = useState("");
+  const [abTestSize, setAbTestSize] = useState(100);
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
   const [form, setForm] = useState({
     name: "",
@@ -555,6 +559,23 @@ export default function ComposePage() {
 
       if (!data.success) throw new Error(data.error);
 
+      // Create A/B test if enabled
+      if (useAbTesting && abVariantA && abVariantB && abVariantA !== abVariantB) {
+        setSendProgress("Creating A/B test...");
+        await fetch("/api/ab-tests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaign_id: data.id,
+            variant_a_subject: templates.find((t: any) => t.id === abVariantA)?.subject || "",
+            variant_b_subject: templates.find((t: any) => t.id === abVariantB)?.subject || "",
+            variant_a_body: templates.find((t: any) => t.id === abVariantA)?.body || "",
+            variant_b_body: templates.find((t: any) => t.id === abVariantB)?.body || "",
+            test_size: abTestSize,
+          }),
+        });
+      }
+
       if (action === "send") {
         setSendProgress("Queuing emails...");
 
@@ -806,6 +827,108 @@ export default function ComposePage() {
               )}
             </div>
 
+                        {/* A/B Testing */}
+            <div style={{ borderTop: "1px solid var(--card-border)", paddingTop: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                <label style={{ fontSize: "0.875rem", fontWeight: 500 }}>🔬 A/B Testing</label>
+                <button type="button" onClick={() => {
+                  setUseAbTesting(!useAbTesting);
+                  if (!useAbTesting) {
+                    // Auto-select first two templates as variants
+                    const available = templates.filter(t => t.id !== form.template_id);
+                    if (available.length >= 1) setAbVariantA(form.template_id);
+                    if (available.length >= 2) setAbVariantB(available[0].id);
+                  }
+                }}
+                  style={{
+                    padding: "0.25rem 0.75rem", borderRadius: "1rem", border: "none",
+                    fontSize: "0.75rem", fontWeight: 600, cursor: "pointer",
+                    background: useAbTesting ? "var(--accent)" : "var(--border)",
+                    color: useAbTesting ? "#fff" : "var(--muted)", transition: "all 0.2s",
+                  }}>
+                  {useAbTesting ? "ON" : "OFF"}
+                </button>
+              </div>
+              <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+                Split test two email variants. Each recipient gets one variant, then the winner is auto-selected by open rate.
+              </p>
+              {useAbTesting && (
+                <div style={{
+                  display: "flex", flexDirection: "column", gap: "0.75rem",
+                  padding: "0.75rem", borderRadius: "0.5rem",
+                  border: "1px solid var(--border)", background: "rgba(99, 102, 241, 0.03)",
+                }}>
+                  {/* Variant A */}
+                  <div>
+                    <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", color: "#6366f1" }}>
+                      Variant A Template
+                    </label>
+                    <select className="input" value={abVariantA} onChange={e => setAbVariantA(e.target.value)}>
+                      <option value="">Select template for Variant A...</option>
+                      {templates.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                    {abVariantA && (() => {
+                      const tmpl = templates.find(t => t.id === abVariantA);
+                      return tmpl ? (
+                        <div style={{ marginTop: "0.375rem", padding: "0.5rem", borderRadius: "0.375rem", border: "1px solid rgba(99, 102, 241, 0.2)", fontSize: "0.7rem" }}>
+                          <div style={{ fontWeight: 600 }}>Subject: {tmpl.subject}</div>
+                          <div style={{ color: "var(--muted)", marginTop: "0.25rem", maxHeight: "60px", overflow: "hidden" }}>{tmpl.body?.substring(0, 150)}...</div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+
+                  {/* Variant B */}
+                  <div>
+                    <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", color: "#a855f7" }}>
+                      Variant B Template
+                    </label>
+                    <select className="input" value={abVariantB} onChange={e => setAbVariantB(e.target.value)}>
+                      <option value="">Select template for Variant B...</option>
+                      {templates.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                    {abVariantB && (() => {
+                      const tmpl = templates.find(t => t.id === abVariantB);
+                      return tmpl ? (
+                        <div style={{ marginTop: "0.375rem", padding: "0.5rem", borderRadius: "0.375rem", border: "1px solid rgba(168, 85, 247, 0.2)", fontSize: "0.7rem" }}>
+                          <div style={{ fontWeight: 600 }}>Subject: {tmpl.subject}</div>
+                          <div style={{ color: "var(--muted)", marginTop: "0.25rem", maxHeight: "60px", overflow: "hidden" }}>{tmpl.body?.substring(0, 150)}...</div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+
+                  {/* Test Size */}
+                  <div>
+                    <label style={{ fontSize: "0.75rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>
+                      Test Size (emails)
+                    </label>
+                    <input type="number" className="input" value={abTestSize} onChange={e => setAbTestSize(Number(e.target.value))} min={20} max={10000} style={{ width: "150px" }} />
+                    <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+                      How many emails to split between A and B. Remaining go to the winner after test completes.
+                    </p>
+                  </div>
+
+                  {/* Validation */}
+                  {abVariantA && abVariantB && abVariantA === abVariantB && (
+                    <p style={{ fontSize: "0.7rem", color: "rgb(234, 179, 8)" }}>
+                      ⚠️ Variant A and B must be different templates
+                    </p>
+                  )}
+                  {abVariantA && abVariantB && abVariantA !== abVariantB && (
+                    <p style={{ fontSize: "0.7rem", color: "var(--success)" }}>
+                      ✅ Ready to A/B test — {abTestSize} emails will be split between the two variants
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+
             {/* Contact List */}
             <div>
               <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.375rem" }}>
@@ -981,6 +1104,9 @@ export default function ComposePage() {
             )}
             {useTemplateRotation && selectedTemplateIds.length > 1 && (
               <div><span style={{ color: "var(--muted)" }}>Template Rotation:</span> {selectedTemplateIds.length} templates (each recipient gets a different message)</div>
+            )}
+            {useAbTesting && abVariantA && abVariantB && abVariantA !== abVariantB && (
+              <div><span style={{ color: "var(--muted)" }}>A/B Test:</span> 🔬 {abTestSize} emails split between 2 variants (auto-winner by open rate)</div>
             )}
             <div><span style={{ color: "var(--muted)" }}>Tracking:</span> {form.enable_tracking ? "✅ Open tracking" : "⏸ Disabled"}</div>
             <div><span style={{ color: "var(--muted)" }}>Compliance:</span> {form.enable_unsubscribe ? "✅ Unsubscribe link" : "⏸ No link"}</div>
