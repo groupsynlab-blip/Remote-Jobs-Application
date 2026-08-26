@@ -140,6 +140,13 @@ export default function HistoryPage() {
                   <div style={{ marginTop: "0.5rem", height: "4px", borderRadius: "2px", background: "var(--bg-secondary)", overflow: "hidden" }}>
                     <div style={{ height: "100%", width: `${pct}%`, background: sc, borderRadius: "2px", transition: "width 0.3s" }} />
                   </div>
+                  <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem" }}>
+                    <button onClick={(e) => { e.stopPropagation(); router.push(`/campaigns/${c.id}`); }} style={{
+                      padding: "0.25rem 0.625rem", borderRadius: "0.375rem", border: "1px solid var(--border)",
+                      background: "var(--bg-secondary)", color: "var(--accent)", fontSize: "0.7rem",
+                      fontWeight: 600, cursor: "pointer",
+                    }}>📋 View Details</button>
+                  </div>
                 </div>
               );
             })}

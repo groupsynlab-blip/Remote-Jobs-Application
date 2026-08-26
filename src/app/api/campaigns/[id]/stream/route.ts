@@ -15,6 +15,7 @@ import {
   isRateLimitError,
   isBlacklisted,
   wasAlreadySent,
+  getAllSmtpRateUsage,
 } from '@/lib/email';
 import { isSchedulerPaused, pauseScheduler, resumeScheduler } from '@/lib/scheduler';
 import { alertHourlyLimitHit, alertConnectionFailed, alertAllExhausted } from '@/lib/alerts';
@@ -126,6 +127,22 @@ export async function GET(
           previously_sent: previouslySent.count, previously_failed: previouslyFailed.count,
           campaign_name: campaign.name,
         });
+
+        // Emit SMTP quota data at stream start
+        {
+          const allConfigs = getDb().prepare('SELECT * FROM smtp_config').all() as any[];
+          const usage = getAllSmtpRateUsage();
+          const quotaData = allConfigs.map((c: any) => ({
+            id: c.id,
+            name: c.name || c.from_email,
+            enabled: c.enabled,
+            hourly_limit: c.hourly_limit || 0,
+            daily_limit: c.daily_limit || 0,
+            hourly_used: usage[c.id]?.hourly_used || 0,
+            daily_used: usage[c.id]?.daily_used || 0,
+          }));
+          send({ type: 'smtp_quota', smtps: quotaData });
+        }
 
         if (totalQueued.count === 0) {
           send({ type: 'done', sent: 0, failed: 0, skipped: 0, total });
@@ -285,6 +302,22 @@ export async function GET(
                   remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
                   email: emailLog.contact_email, status: 'sent',
                   subject: mailOptions.subject as string, server: currentSmtp.name || currentSmtp.host });
+
+                // Emit SMTP quota data every 5 emails so UI can show real-time usage
+                if (totalSent % 5 === 0 || limitCheck.disabled) {
+                  const allConfigs = getDb().prepare('SELECT * FROM smtp_config').all() as any[];
+                  const usage = getAllSmtpRateUsage();
+                  const quotaData = allConfigs.map((c: any) => ({
+                    id: c.id,
+                    name: c.name || c.from_email,
+                    enabled: c.enabled,
+                    hourly_limit: c.hourly_limit || 0,
+                    daily_limit: c.daily_limit || 0,
+                    hourly_used: usage[c.id]?.hourly_used || 0,
+                    daily_used: usage[c.id]?.daily_used || 0,
+                  }));
+                  send({ type: 'smtp_quota', smtps: quotaData });
+                }
               } catch (error: any) {
                 if (isRateLimitError(error)) {
                   // Remember name before reassigning

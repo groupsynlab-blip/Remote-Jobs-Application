@@ -171,6 +171,9 @@ export default function ComposePage() {
   const autoScrollRef = useRef(true);
   const logIdRef = useRef(0);
 
+  // ─── SMTP Quota Tracker ──────────────────────────────────────
+  const [smtpQuotas, setSmtpQuotas] = useState<{ id: string; name: string; enabled: boolean; hourly_limit: number; daily_limit: number; hourly_used: number; daily_used: number }[]>([]);
+
   // ─── Connectivity Monitoring ──────────────────────────────────
   useEffect(() => {
     const handleOnline = () => {
@@ -483,6 +486,10 @@ export default function ComposePage() {
             break;
           }
 
+          case "smtp_quota":
+            if (data.smtps) setSmtpQuotas(data.smtps);
+            break;
+
           case "error":
             setSendProgress(`❌ Error: ${data.message}`);
             break;
@@ -728,14 +735,14 @@ export default function ComposePage() {
               ▶ Resume Sending
             </button>
             <button
-              onClick={() => router.push(`/history`)}
+              onClick={() => router.push(`/campaigns/${activeCampaign.id}`)}
               style={{
                 fontSize: '0.85rem', padding: '0.625rem 1.25rem', borderRadius: '0.5rem',
                 border: '1px solid var(--border)', background: 'var(--bg-secondary)',
                 color: 'var(--text)', cursor: 'pointer', fontWeight: 600,
               }}
             >
-              📋 View in History
+              📋 View Details
             </button>
           </div>
         </div>
@@ -1330,6 +1337,56 @@ export default function ComposePage() {
                   ⏳ {elapsedTime < 60 ? `${elapsedTime}s` : elapsedTime < 3600 ? `${Math.floor(elapsedTime / 60)}m ${elapsedTime % 60}s` : `${Math.floor(elapsedTime / 3600)}h ${Math.floor((elapsedTime % 3600) / 60)}m`}
                 </div>
                 <div style={{ fontSize: "0.6rem", color: "var(--muted)", fontWeight: 500 }}>elapsed</div>
+              </div>
+            </div>
+          )}
+
+          {/* ─── SMTP Quota Tracker ────────────────────────── */}
+          {smtpQuotas.length > 0 && (
+            <div style={{ marginBottom: "0.75rem" }}>
+              <div style={{ fontSize: "0.8rem", fontWeight: 600, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                📊 SMTP Quota
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(smtpQuotas.length, 3)}, 1fr)`, gap: "0.5rem" }}>
+                {smtpQuotas.map((smtp) => {
+                  const hourlyPct = smtp.hourly_limit > 0 ? Math.round((smtp.hourly_used / smtp.hourly_limit) * 100) : 0;
+                  const dailyPct = smtp.daily_limit > 0 ? Math.round((smtp.daily_used / smtp.daily_limit) * 100) : 0;
+                  const hourlyColor = hourlyPct >= 90 ? "#ef4444" : hourlyPct >= 70 ? "#f59e0b" : "#10b981";
+                  const dailyColor = dailyPct >= 90 ? "#ef4444" : dailyPct >= 70 ? "#f59e0b" : "#10b981";
+                  return (
+                    <div key={smtp.id} style={{
+                      padding: "0.5rem", borderRadius: "0.5rem", fontSize: "0.7rem",
+                      background: smtp.enabled ? "rgba(99, 102, 241, 0.05)" : "rgba(107, 114, 128, 0.05)",
+                      border: `1px solid ${smtp.enabled ? "rgba(99, 102, 241, 0.15)" : "var(--border)"}`,
+                      opacity: smtp.enabled ? 1 : 0.5,
+                    }}>
+                      <div style={{ fontWeight: 600, marginBottom: "0.25rem", display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "80px" }}>{smtp.name}</span>
+                        <span style={{ fontSize: "0.6rem", color: smtp.enabled ? "var(--success)" : "var(--danger)" }}>{smtp.enabled ? "●" : "○"}</span>
+                      </div>
+                      {smtp.hourly_limit > 0 && (
+                        <div style={{ marginBottom: "0.25rem" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", color: "var(--muted)", fontSize: "0.6rem" }}>
+                            <span>Hourly</span><span>{smtp.hourly_used}/{smtp.hourly_limit}</span>
+                          </div>
+                          <div style={{ height: "4px", borderRadius: "2px", background: "var(--border)", marginTop: "2px", overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${hourlyPct}%`, background: hourlyColor, borderRadius: "2px", transition: "width 0.3s" }} />
+                          </div>
+                        </div>
+                      )}
+                      {smtp.daily_limit > 0 && (
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", color: "var(--muted)", fontSize: "0.6rem" }}>
+                            <span>Daily</span><span>{smtp.daily_used}/{smtp.daily_limit}</span>
+                          </div>
+                          <div style={{ height: "4px", borderRadius: "2px", background: "var(--border)", marginTop: "2px", overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${dailyPct}%`, background: dailyColor, borderRadius: "2px", transition: "width 0.3s" }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
