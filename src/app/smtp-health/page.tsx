@@ -1,256 +1,400 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
-const COLORS = { sent: "#22c55e", failed: "#ef4444", opened: "#6366f1" };
-
-// ─── Donut Chart ───────────────────────────────────────────────
-function DonutChart({ segments, size = 120 }: { segments: { label: string; value: number; color: string }[]; size?: number }) {
-  const total = segments.reduce((s, seg) => s + seg.value, 0);
-  if (total === 0) return <div style={{ width: size, height: size, borderRadius: "50%", background: "#d4d4d8", opacity: 0.3 }} />;
-
-  let cumulative = 0;
-  const gradientParts: string[] = [];
-  for (const seg of segments) {
-    const start = (cumulative / total) * 360;
-    cumulative += seg.value;
-    const end = (cumulative / total) * 360;
-    gradientParts.push(`${seg.color} ${start}deg ${end}deg`);
-  }
-
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%",
-      background: `conic-gradient(${gradientParts.join(", ")})`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-    }}>
-      <div style={{
-        width: size * 0.6, height: size * 0.6, borderRadius: "50%",
-        background: "#ffffff", display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center",
-      }}>
-        <div style={{ fontSize: "1rem", fontWeight: 700 }}>{total.toLocaleString()}</div>
-        <div style={{ fontSize: "0.55rem", color: "#71717a" }}>Total</div>
-      </div>
-    </div>
-  );
+interface SmtpHealthConfig {
+  id: string;
+  name: string;
+  from_email: string;
+  host: string;
+  port: number;
+  enabled: number;
+  daily_limit: number;
+  hourly_limit: number;
+  rate_usage: { hourly_used: number; daily_used: number };
+  stats: { total_sent: number; total_failed: number; success_rate: string };
+  last_used: string | null;
 }
 
-// ─── Bar Chart (daily volume) ──────────────────────────────────
-function DailyBarChart({ data }: { data: { day: string; sent: number; failed: number }[] }) {
-  if (data.length === 0) return <div style={{ fontSize: "0.7rem", color: "#71717a", textAlign: "center", padding: "1rem" }}>No send data</div>;
-  const maxVal = Math.max(...data.map(d => d.sent + d.failed), 1);
-
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "60px" }}>
-      {data.map((d, i) => (
-        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
-          <div style={{
-            width: "100%", borderRadius: "2px 2px 0 0", display: "flex", flexDirection: "column",
-            justifyContent: "flex-end", height: "50px",
-          }}>
-            <div style={{
-              width: "100%", height: `${(d.failed / maxVal) * 50}px`,
-              background: COLORS.failed, borderRadius: d.sent === 0 ? "2px 2px 0 0" : 0,
-            }} />
-            <div style={{
-              width: "100%", height: `${(d.sent / maxVal) * 50}px`,
-              background: COLORS.sent, borderRadius: d.failed === 0 ? "2px 2px 0 0" : 0,
-            }} />
-          </div>
-          <div style={{ fontSize: "0.5rem", color: "#71717a" }}>{d.day.slice(5)}</div>
-        </div>
-      ))}
-    </div>
-  );
+interface SendLog {
+  contact_email: string;
+  contact_name: string;
+  status: string;
+  subject_used: string;
+  sent_at: string;
+  error_message: string | null;
+  campaign_name: string;
 }
 
-// ─── Status Badge ──────────────────────────────────────────────
-function HealthBadge({ rate }: { rate: number }) {
-  const color = rate >= 95 ? "#22c55e" : rate >= 80 ? "#eab308" : "#ef4444";
-  const label = rate >= 95 ? "Healthy" : rate >= 80 ? "Warning" : "Critical";
-  return (
-    <span style={{
-      padding: "0.125rem 0.5rem", borderRadius: "0.75rem", fontSize: "0.65rem",
-      fontWeight: 600, background: `${color}18`, color, border: `1px solid ${color}40`,
-    }}>
-      {label}
-    </span>
-  );
+interface DailyBreakdown {
+  day: string;
+  smtp_config_id?: string;
+  count: number;
+  status: string;
 }
 
-// ─── Main Page ─────────────────────────────────────────────────
 export default function SmtpHealthPage() {
-  const [configs, setConfigs] = useState<any[]>([]);
+  const [configs, setConfigs] = useState<SmtpHealthConfig[]>([]);
+  const [selectedSmtp, setSelectedSmtp] = useState<string | null>(null);
+  const [sendLogs, setSendLogs] = useState<SendLog[]>([]);
+  const [dailyBreakdown, setDailyBreakdown] = useState<DailyBreakdown[]>([]);
+  const [refreshTime, setRefreshTime] = useState("");
+  const [daysFilter, setDaysFilter] = useState(7);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetch("/api/smtp/health")
-      .then(r => r.json())
-      .then(data => { setConfigs(data); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
+  const fetchData = useCallback(async () => {
+    try {
+      const url = selectedSmtp
+        ? `/api/smtp-health?smtp_id=${selectedSmtp}&days=${daysFilter}`
+        : `/api/smtp-health?days=${daysFilter}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      setConfigs(data.configs || []);
+      setSendLogs(data.send_logs || []);
+      setDailyBreakdown(data.daily_breakdown || []);
+    } catch (err) {
+      console.error("Failed to fetch SMTP health:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedSmtp, daysFilter]);
 
-  // Aggregate totals
-  const totalSent = configs.reduce((s, c) => s + (c.total_sent || 0), 0);
-  const totalFailed = configs.reduce((s, c) => s + (c.total_failed || 0), 0);
-  const totalOpened = configs.reduce((s, c) => s + (c.total_opened || 0), 0);
-  const overallRate = totalSent + totalFailed > 0 ? ((totalSent / (totalSent + totalFailed)) * 100).toFixed(1) : "0.0";
+  useEffect(() => {
+    fetchData();
+    // Calculate when daily limit resets (midnight Pacific Time)
+    const now = new Date();
+    const pacificOffset = -7;
+    const utcHour = now.getUTCHours();
+    const pacificHour = (utcHour + pacificOffset + 24) % 24;
+    const minutesUntilMidnight = (24 - pacificHour - 1) * 60 + (60 - now.getUTCMinutes());
+    const resetDate = new Date(now.getTime() + minutesUntilMidnight * 60000);
+    setRefreshTime(resetDate.toLocaleString());
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  const totalSentToday = configs.reduce((sum, c) => sum + (c.rate_usage?.daily_used || 0), 0);
+  const totalHourlySent = configs.reduce((sum, c) => sum + (c.rate_usage?.hourly_used || 0), 0);
+  const totalDailyCapacity = configs.reduce((sum, c) => sum + (c.daily_limit || 0), 0);
+  const totalHourlyCapacity = configs.reduce((sum, c) => sum + (c.hourly_limit || 0), 0);
+  const totalAllTimeSent = configs.reduce((sum, c) => sum + (c.stats?.total_sent || 0), 0);
+  const totalAllTimeFailed = configs.reduce((sum, c) => sum + (c.stats?.total_failed || 0), 0);
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return "Never";
+    const d = new Date(dateStr + (dateStr.includes("Z") ? "" : "Z"));
+    return d.toLocaleString();
+  };
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case "sent": return "#10b981";
+      case "failed": return "#ef4444";
+      case "queued": return "#f59e0b";
+      case "rate_limited": return "#f97316";
+      default: return "#94a3b8";
+    }
+  };
+
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case "sent": return "✅";
+      case "failed": return "❌";
+      case "queued": return "⏳";
+      case "rate_limited": return "⚠️";
+      default: return "•";
+    }
+  };
+
+  // Group daily breakdown by day for the chart
+  const dailyByDay: Record<string, { sent: number; failed: number; queued: number }> = {};
+  dailyBreakdown.forEach((d) => {
+    if (!dailyByDay[d.day]) dailyByDay[d.day] = { sent: 0, failed: 0, queued: 0 };
+    if (d.status === "sent") dailyByDay[d.day].sent += d.count;
+    else if (d.status === "failed") dailyByDay[d.day].failed += d.count;
+    else dailyByDay[d.day].queued += d.count;
+  });
+  const chartDays = Object.keys(dailyByDay).sort().slice(-daysFilter);
+  const maxDayCount = Math.max(1, ...chartDays.map((d) => dailyByDay[d].sent + dailyByDay[d].failed + dailyByDay[d].queued));
 
   return (
-    <div>
-      <div style={{ marginBottom: "2rem" }}>
-        <h1 style={{ fontSize: "1.75rem", fontWeight: 700 }}>SMTP Health</h1>
-        <p style={{ color: "var(--muted)", marginTop: "0.25rem" }}>Deliverability rates and performance per SMTP configuration</p>
+    <div style={{ maxWidth: "1200px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem" }}>
+        <div>
+          <h1 style={{ fontSize: "1.75rem", fontWeight: 700, marginBottom: "0.25rem" }}>🩺 SMTP Health Dashboard</h1>
+          <p style={{ color: "var(--muted)", fontSize: "0.875rem" }}>
+            Monitor SMTP performance, limits, and per-email send history
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <select
+            value={daysFilter}
+            onChange={(e) => setDaysFilter(parseInt(e.target.value))}
+            style={{
+              padding: "0.4rem 0.75rem", borderRadius: "0.5rem",
+              border: "1px solid var(--border)", background: "var(--bg-secondary)",
+              color: "var(--text)", fontSize: "0.8rem",
+            }}
+          >
+            <option value={1}>Last 1 day</option>
+            <option value={3}>Last 3 days</option>
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+          </select>
+          <button
+            onClick={() => fetchData()}
+            style={{
+              padding: "0.4rem 0.75rem", borderRadius: "0.5rem",
+              border: "1px solid var(--border)", background: "var(--bg-secondary)",
+              color: "var(--text)", fontSize: "0.8rem", cursor: "pointer",
+            }}
+          >
+            🔄 Refresh
+          </button>
+        </div>
       </div>
 
-      {loading ? (
-        <p style={{ color: "var(--muted)", padding: "2rem", textAlign: "center" }}>Loading...</p>
-      ) : configs.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", padding: "3rem" }}>
-          <p style={{ color: "var(--muted)" }}>No SMTP configurations found.</p>
-          <p style={{ color: "var(--muted)", fontSize: "0.8rem", marginTop: "0.5rem" }}>Go to Settings to add an SMTP config.</p>
+      {/* Summary Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
+        <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--accent)" }}>{configs.filter(c => c.enabled).length}/{configs.length}</div>
+          <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>Active SMTPs</div>
         </div>
-      ) : (
-        <>
-          {/* ─── Overall Summary ──────────────────────────── */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
-            <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>{configs.length}</div>
-              <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>SMTP Configs</div>
-            </div>
-            <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--success)" }}>{totalSent.toLocaleString()}</div>
-              <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>Emails Sent</div>
-            </div>
-            <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--danger)" }}>{totalFailed.toLocaleString()}</div>
-              <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>Failed</div>
-            </div>
-            <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: 700, color: overallRate === "100.0" ? "var(--success)" : parseFloat(overallRate) >= 90 ? "var(--warning)" : "var(--danger)" }}>
-                {overallRate}%
-              </div>
-              <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>Overall Delivery</div>
-            </div>
-          </div>
+        <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#10b981" }}>{totalSentToday}</div>
+          <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>Sent Today</div>
+        </div>
+        <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#f59e0b" }}>{totalHourlySent}/{totalHourlyCapacity}</div>
+          <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>This Hour</div>
+        </div>
+        <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#6366f1" }}>{totalAllTimeSent.toLocaleString()}</div>
+          <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>All-Time Sent</div>
+        </div>
+        <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: totalAllTimeFailed > 0 ? "#ef4444" : "#10b981" }}>{totalAllTimeFailed.toLocaleString()}</div>
+          <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>All-Time Failed</div>
+        </div>
+        <div className="card" style={{ textAlign: "center", padding: "1rem" }}>
+          <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--muted)" }}>Resets at</div>
+          <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--accent)" }}>Midnight PT</div>
+          <div style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{refreshTime}</div>
+        </div>
+      </div>
 
-          {/* ─── Per-Config Cards ─────────────────────────── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-            {configs.map((config) => {
-              const deliveryRate = parseFloat(config.delivery_rate);
-              const openRate = parseFloat(config.open_rate);
-              const total = config.total_sent + config.total_failed;
-
+      {/* Daily Chart */}
+      {chartDays.length > 0 && (
+        <div className="card" style={{ marginBottom: "1.5rem", padding: "1.25rem" }}>
+          <h3 style={{ fontWeight: 600, fontSize: "0.875rem", marginBottom: "1rem" }}>📊 Sending Activity ({daysFilter} days)</h3>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "120px" }}>
+            {chartDays.map((day) => {
+              const d = dailyByDay[day];
+              const total = d.sent + d.failed + d.queued;
+              const height = (total / maxDayCount) * 100;
               return (
-                <div key={config.id} className="card" style={{ padding: "1.5rem" }}>
-                  {/* Header */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <h2 style={{ fontSize: "1.1rem", fontWeight: 700 }}>{config.name || config.from_email}</h2>
-                        <HealthBadge rate={deliveryRate} />
-                        {!config.enabled && (
-                          <span style={{ fontSize: "0.65rem", padding: "0.125rem 0.375rem", borderRadius: "0.5rem", background: "#a1a1aa18", color: "#71717a", border: "1px solid #a1a1aa40" }}>
-                            Disabled
-                          </span>
-                        )}
-                      </div>
-                      <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-                        {config.host}:{config.port} • {config.from_name} &lt;{config.from_email}&gt;
-                      </p>
+                <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+                  <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{total}</div>
+                  <div style={{ width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: `${height}%` }}>
+                      {d.queued > 0 && <div style={{ background: "#f59e0b", flex: d.queued, minHeight: "2px", borderRadius: "2px 2px 0 0" }} />}
+                      {d.failed > 0 && <div style={{ background: "#ef4444", flex: d.failed, minHeight: "2px" }} />}
+                      {d.sent > 0 && <div style={{ background: "#10b981", flex: d.sent, minHeight: "2px", borderRadius: d.queued === 0 && d.failed === 0 ? "2px 2px 0 0" : "0" }} />}
                     </div>
-                    {config.last_sent_at && (
-                      <div style={{ fontSize: "0.65rem", color: "var(--muted)", textAlign: "right" }}>
-                        Last used: {new Date(config.last_sent_at).toLocaleDateString()}
-                      </div>
-                    )}
                   </div>
-
-                  {/* Stats + Chart row */}
-                  <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "1.5rem", alignItems: "start" }}>
-                    {/* Donut + metrics */}
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem" }}>
-                      <DonutChart
-                        segments={[
-                          { label: "Sent", value: config.total_sent, color: COLORS.sent },
-                          { label: "Failed", value: config.total_failed, color: COLORS.failed },
-                        ]}
-                        size={120}
-                      />
-                      <div style={{ display: "flex", gap: "0.75rem", fontSize: "0.65rem" }}>
-                        <span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.sent, display: "inline-block" }} />
-                          {config.total_sent}
-                        </span>
-                        <span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.failed, display: "inline-block" }} />
-                          {config.total_failed}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Right side: metrics + chart */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                      {/* Key metrics row */}
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem" }}>
-                        <div style={{ padding: "0.5rem", borderRadius: "0.375rem", background: "#22c55e0d", textAlign: "center" }}>
-                          <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--success)" }}>{config.delivery_rate}%</div>
-                          <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>Delivery</div>
-                        </div>
-                        <div style={{ padding: "0.5rem", borderRadius: "0.375rem", background: "#6366f10d", textAlign: "center" }}>
-                          <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--accent)" }}>{config.open_rate}%</div>
-                          <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>Open Rate</div>
-                        </div>
-                        <div style={{ padding: "0.5rem", borderRadius: "0.375rem", background: "#a1a1aa0d", textAlign: "center" }}>
-                          <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--muted)" }}>{config.emails_sent.toLocaleString()}</div>
-                          <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>Total Lifetime</div>
-                        </div>
-                        <div style={{ padding: "0.5rem", borderRadius: "0.375rem", background: config.hourly_used > 0 ? "#eab3080d" : "#a1a1aa0d", textAlign: "center" }}>
-                          <div style={{ fontSize: "1rem", fontWeight: 700, color: config.hourly_used > 0 ? "var(--warning)" : "var(--muted)" }}>
-                            {config.hourly_used}{config.hourly_limit > 0 ? `/${config.hourly_limit}` : ""}
-                          </div>
-                          <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>Hourly</div>
-                        </div>
-                      </div>
-
-                      {/* Daily volume chart */}
-                      <div>
-                        <div style={{ fontSize: "0.7rem", fontWeight: 600, marginBottom: "0.375rem" }}>📈 Last 7 Days</div>
-                        <DailyBarChart data={config.daily_volume || []} />
-                      </div>
-
-                      {/* Error breakdown */}
-                      {config.errors && config.errors.length > 0 && (
-                        <div>
-                          <div style={{ fontSize: "0.7rem", fontWeight: 600, marginBottom: "0.375rem", color: "var(--danger)" }}>
-                            ⚠️ Top Errors ({config.total_failed} total)
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                            {config.errors.slice(0, 3).map((err: any, i: number) => (
-                              <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.65rem" }}>
-                                <div style={{
-                                  height: "4px", borderRadius: "2px", background: COLORS.failed,
-                                  width: `${(err.count / config.total_failed) * 100}%`, maxWidth: "80px", minWidth: "4px",
-                                  opacity: 0.7, flexShrink: 0,
-                                }} />
-                                <span style={{ color: "var(--danger)", fontWeight: 600, minWidth: "20px" }}>{err.count}</span>
-                                <span style={{ color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {err.error_message?.length > 50 ? err.error_message.substring(0, 50) + "..." : err.error_message}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                  <div style={{ fontSize: "0.55rem", color: "var(--muted)", whiteSpace: "nowrap" }}>
+                    {day.slice(5)}
                   </div>
                 </div>
               );
             })}
           </div>
-        </>
+          <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", fontSize: "0.7rem" }}>
+            <span><span style={{ display: "inline-block", width: "10px", height: "10px", background: "#10b981", borderRadius: "2px", marginRight: "4px" }} />Sent</span>
+            <span><span style={{ display: "inline-block", width: "10px", height: "10px", background: "#ef4444", borderRadius: "2px", marginRight: "4px" }} />Failed</span>
+            <span><span style={{ display: "inline-block", width: "10px", height: "10px", background: "#f59e0b", borderRadius: "2px", marginRight: "4px" }} />Queued</span>
+          </div>
+        </div>
       )}
+
+      {/* SMTP Cards */}
+      <div style={{ display: "grid", gap: "1rem", marginBottom: "1.5rem" }}>
+        {configs.map((c) => {
+          const dailyUsed = c.rate_usage?.daily_used || 0;
+          const hourlyUsed = c.rate_usage?.hourly_used || 0;
+          const dailyPct = c.daily_limit > 0 ? (dailyUsed / c.daily_limit) * 100 : 0;
+          const hourlyPct = c.hourly_limit > 0 ? (hourlyUsed / c.hourly_limit) * 100 : 0;
+          const isSelected = selectedSmtp === c.id;
+
+          return (
+            <div
+              key={c.id}
+              className="card"
+              style={{
+                borderLeft: `4px solid ${isSelected ? "#6366f1" : c.enabled ? (dailyPct >= 90 ? "#ef4444" : dailyPct >= 70 ? "#f59e0b" : "#10b981") : "#94a3b8"}`,
+                cursor: "pointer",
+                background: isSelected ? "rgba(99,102,241,0.05)" : undefined,
+              }}
+              onClick={() => setSelectedSmtp(isSelected ? null : c.id)}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: c.enabled ? "#10b981" : "#ef4444" }} />
+                    <h3 style={{ fontWeight: 600, fontSize: "1rem" }}>{c.name}</h3>
+                    {isSelected && <span style={{ fontSize: "0.65rem", background: "var(--accent)", color: "white", padding: "0.15rem 0.5rem", borderRadius: "0.75rem" }}>VIEWING LOGS</span>}
+                  </div>
+                  <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+                    {c.from_email} • {c.host}:{c.port}
+                  </p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 700, color: dailyPct >= 90 ? "#ef4444" : dailyPct >= 70 ? "#f59e0b" : "#10b981" }}>
+                    {dailyUsed}/{c.daily_limit}
+                  </div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)" }}>sent today</div>
+                </div>
+              </div>
+
+              {/* Stats Row */}
+              <div style={{ display: "flex", gap: "1.5rem", marginBottom: "0.75rem", fontSize: "0.75rem" }}>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>All-time: </span>
+                  <span style={{ fontWeight: 600, color: "#10b981" }}>{c.stats?.total_sent?.toLocaleString() || 0} sent</span>
+                </div>
+                <div>
+                  <span style={{ fontWeight: 600, color: c.stats?.total_failed ? "#ef4444" : "#10b981" }}>{c.stats?.total_failed || 0} failed</span>
+                </div>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>Rate: </span>
+                  <span style={{ fontWeight: 600, color: parseFloat(c.stats?.success_rate || "0") >= 95 ? "#10b981" : "#f59e0b" }}>{c.stats?.success_rate || "0.0"}%</span>
+                </div>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>Last used: </span>
+                  <span style={{ fontWeight: 500 }}>{c.last_used ? formatDate(c.last_used) : "Never"}</span>
+                </div>
+              </div>
+
+              {/* Daily Progress */}
+              <div style={{ marginBottom: "0.5rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.2rem" }}>
+                  <span>Daily</span>
+                  <span>{dailyUsed}/{c.daily_limit} ({dailyPct.toFixed(0)}%)</span>
+                </div>
+                <div style={{ height: "8px", borderRadius: "4px", background: "var(--bg-secondary)", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: "4px", width: `${dailyPct}%`,
+                    background: dailyPct >= 90 ? "linear-gradient(90deg, #ef4444, #f87171)" : dailyPct >= 70 ? "linear-gradient(90deg, #f59e0b, #fbbf24)" : "linear-gradient(90deg, #10b981, #34d399)",
+                    transition: "width 0.5s",
+                  }} />
+                </div>
+              </div>
+
+              {/* Hourly Progress */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.2rem" }}>
+                  <span>Hourly</span>
+                  <span>{hourlyUsed}/{c.hourly_limit} ({hourlyPct.toFixed(0)}%)</span>
+                </div>
+                <div style={{ height: "6px", borderRadius: "3px", background: "var(--bg-secondary)", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: "3px", width: `${hourlyPct}%`,
+                    background: hourlyPct >= 90 ? "linear-gradient(90deg, #ef4444, #f87171)" : hourlyPct >= 70 ? "linear-gradient(90deg, #f59e0b, #fbbf24)" : "linear-gradient(90deg, #6366f1, #818cf8)",
+                    transition: "width 0.5s",
+                  }} />
+                </div>
+              </div>
+
+              {/* Status Badges */}
+              <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {dailyPct >= 90 && <span style={{ padding: "0.15rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: "rgba(239,68,68,0.1)", color: "#ef4444" }}>🚫 Near Daily Limit</span>}
+                {hourlyPct >= 90 && <span style={{ padding: "0.15rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: "rgba(245,158,11,0.1)", color: "#f59e0b" }}>⚠️ Near Hourly Limit</span>}
+                {dailyPct < 50 && hourlyPct < 50 && <span style={{ padding: "0.15rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: "rgba(16,185,129,0.1)", color: "#10b981" }}>✅ Healthy</span>}
+                {!c.enabled && <span style={{ padding: "0.15rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: "rgba(148,163,184,0.1)", color: "#94a3b8" }}>⏸️ Disabled</span>}
+                <span style={{ padding: "0.15rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: "rgba(99,102,241,0.1)", color: "#6366f1" }}>
+                  {c.enabled ? "✅ Enabled" : "❌ Disabled"}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Send Logs for Selected SMTP */}
+      {selectedSmtp && (
+        <div className="card" style={{ marginBottom: "1.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <h3 style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+              📧 Send History — {configs.find(c => c.id === selectedSmtp)?.name}
+            </h3>
+            <button
+              onClick={() => setSelectedSmtp(null)}
+              style={{
+                padding: "0.3rem 0.75rem", borderRadius: "0.5rem",
+                border: "1px solid var(--border)", background: "var(--bg-secondary)",
+                color: "var(--text)", fontSize: "0.75rem", cursor: "pointer",
+              }}
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          {sendLogs.length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: "0.85rem", padding: "1rem 0" }}>No send logs found for this SMTP config.</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid var(--border)" }}>
+                    <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--muted)", fontWeight: 600 }}>Status</th>
+                    <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--muted)", fontWeight: 600 }}>Recipient</th>
+                    <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--muted)", fontWeight: 600 }}>Campaign</th>
+                    <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--muted)", fontWeight: 600 }}>Subject</th>
+                    <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--muted)", fontWeight: 600 }}>Sent At</th>
+                    <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--muted)", fontWeight: 600 }}>Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sendLogs.map((log, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td style={{ padding: "0.4rem 0.5rem" }}>
+                        <span style={{ color: statusColor(log.status) }}>{statusIcon(log.status)} {log.status}</span>
+                      </td>
+                      <td style={{ padding: "0.4rem 0.5rem", fontWeight: 500 }}>
+                        {log.contact_name ? `${log.contact_name} ` : ""}{log.contact_email}
+                      </td>
+                      <td style={{ padding: "0.4rem 0.5rem", color: "var(--muted)" }}>{log.campaign_name}</td>
+                      <td style={{ padding: "0.4rem 0.5rem", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.subject_used}</td>
+                      <td style={{ padding: "0.4rem 0.5rem", color: "var(--muted)", fontSize: "0.75rem" }}>{formatDate(log.sent_at)}</td>
+                      <td style={{ padding: "0.4rem 0.5rem", color: "#ef4444", fontSize: "0.7rem", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.error_message || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reset Info */}
+      <div className="card" style={{ background: "rgba(99,102,241,0.05)" }}>
+        <h3 style={{ fontWeight: 600, fontSize: "0.875rem", marginBottom: "0.5rem" }}>⏰ When Do Limits Reset?</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", fontSize: "0.8rem" }}>
+          <div>
+            <div style={{ fontWeight: 600 }}>Daily Limits</div>
+            <div style={{ color: "var(--muted)" }}>Reset at midnight Pacific Time (PDT/PST)</div>
+            <div style={{ color: "var(--accent)", fontWeight: 600 }}>Next reset: {refreshTime}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 600 }}>Hourly Limits</div>
+            <div style={{ color: "var(--muted)" }}>Rolling window — resets 60 minutes after each send</div>
+            <div style={{ color: "var(--accent)", fontWeight: 600 }}>Auto-resume enabled ✅</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

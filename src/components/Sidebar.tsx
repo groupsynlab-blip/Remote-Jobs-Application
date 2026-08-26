@@ -16,6 +16,7 @@ const navItems = [
   { href: "/landing-pages", label: "Landing Pages", icon: "📄" },
   { href: "/warmup", label: "Warmup", icon: "🔥" },
   { href: "/ab-tests", label: "A/B Tests", icon: "🔬" },
+  { href: "/smtp-health", label: "SMTP Health", icon: "🩺" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
