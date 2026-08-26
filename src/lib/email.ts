@@ -112,7 +112,7 @@ export function isRateLimitError(error: any): boolean {
 }
 
 /** Check if an SMTP config is near its hourly or daily limit (within threshold) */
-export function isSmtpNearLimit(config: SmtpConfig, threshold: number = 5): { near: boolean; reason?: string } {
+export function isSmtpNearLimit(config: SmtpConfig, threshold: number = 2): { near: boolean; reason?: string } {
   if (config.hourly_limit > 0) {
     const { hourly_used } = getSmtpRateUsage(config.id);
     if (hourly_used >= config.hourly_limit - threshold) {
@@ -186,33 +186,69 @@ export function getEnabledSmtpConfigs(): SmtpConfig[] {
 }
 
 export class SmtpRotator {
-  private available: SmtpConfig[] = [];
+  private configs: SmtpConfig[] = [];
   private currentIndex = 0;
+  private triedSinceLastSuccess = new Set<string>();
 
   constructor(configs: SmtpConfig[]) {
-    for (const c of configs) {
-      const rateLimited = isSmtpRateLimited(c);
-      const nearLimit = isSmtpNearLimit(c, 5);
-      // Include config only if not rate-limited AND not near limit
-      if (!rateLimited.limited && !nearLimit.near) {
-        this.available.push(c);
-      }
-    }
+    this.configs = configs;
   }
 
+  /**
+   * Get the next SMTP config that is NOT rate-limited.
+   * Re-checks limits per-call instead of filtering once at construction.
+   * If all configs have been tried once and all are rate-limited, returns null.
+   */
   next(): SmtpConfig | null {
-    if (this.available.length === 0) return null;
-    return this.available[this.currentIndex++ % this.available.length];
+    if (this.configs.length === 0) return null;
+
+    const startIdx = this.currentIndex % this.configs.length;
+    for (let i = 0; i < this.configs.length; i++) {
+      const idx = (startIdx + i) % this.configs.length;
+      const config = this.configs[idx];
+
+      // Skip configs we already tried in this round (before a successful send)
+      if (this.triedSinceLastSuccess.has(config.id)) continue;
+
+      // Re-check rate limits in real-time from the DB
+      const rateCheck = isSmtpRateLimited(config);
+      if (rateCheck.limited) continue;
+
+      // This config is available — advance index for next call
+      this.currentIndex = idx + 1;
+      return config;
+    }
+
+    // All configs tried and all rate-limited
+    return null;
   }
 
+  /**
+   * Mark a successful send — clears the "tried" set so we can cycle again.
+   */
   recordSend(configId: string): void {
     getDb().prepare(
       `UPDATE smtp_config SET emails_sent = emails_sent + 1, last_used_at = datetime('now') WHERE id = ?`
     ).run(configId);
     recordSmtpSend(configId);
+    // Reset tried set on successful send — allows re-cycling
+    this.triedSinceLastSuccess.clear();
   }
 
-  get availableCount(): number { return this.available.length; }
+  /**
+   * Mark a config as tried (rate-limited) for the current round.
+   */
+  markTried(configId: string): void {
+    this.triedSinceLastSuccess.add(configId);
+  }
+
+  get availableCount(): number {
+    let count = 0;
+    for (const c of this.configs) {
+      if (!isSmtpRateLimited(c).limited) count++;
+    }
+    return count;
+  }
 }
 
 // ─── Click Tracking ─────────────────────────────────────────────

@@ -256,50 +256,62 @@ export async function GET(
               emailLog.contact_name, emailLog.contact_email, trackingId,
             );
 
-            try {
-              const transporter = createTransporter(smtpConfig);
-              await transporter.sendMail(mailOptions);
+            // Retry loop: try up to ALL available SMTPs for this single email
+            let emailSent = false;
+            let remainingSmtpAttempts = Math.min(rotator.availableCount, 6); // max 6 retries (one per SMTP)
+            let currentSmtp = smtpConfig;
 
-              db.prepare(
-                "UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, subject_used = ? WHERE id = ?"
-              ).run(smtpConfig.id, mailOptions.subject as string, emailLog.id);
+            while (!emailSent && remainingSmtpAttempts > 0 && !closed) {
+              try {
+                const transporter = createTransporter(currentSmtp);
+                await transporter.sendMail(mailOptions);
 
-              rotator.recordSend(smtpConfig.id);
-              recordDomainSend(emailLog.contact_email);
-              totalSent++;
+                db.prepare(
+                  "UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, subject_used = ? WHERE id = ?"
+                ).run(currentSmtp.id, mailOptions.subject as string, emailLog.id);
 
-              // Auto-disable if config just hit its limit
-              const limitCheck = autoDisableOnLimit(smtpConfig);
-              if (limitCheck.disabled) {
-                // Rebuild rotator without this config
-                rotator = new SmtpRotator(getEnabledSmtpConfigs());
-              }
+                rotator.recordSend(currentSmtp.id);
+                recordDomainSend(emailLog.contact_email);
+                totalSent++;
+                emailSent = true;
 
-              send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped,
-                remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
-                email: emailLog.contact_email, status: 'sent',
-                subject: mailOptions.subject as string, server: smtpConfig.name || smtpConfig.host });
-            } catch (error: any) {
-              // Rate limit errors: keep email queued so it can be retried with another SMTP
-              if (isRateLimitError(error)) {
-                // Auto-disable this SMTP config so it's not used again this hour
-                getDb().prepare("UPDATE smtp_config SET enabled = 0, updated_at = datetime('now') WHERE id = ?").run(smtpConfig.id);
-                // Send alert about hourly limit
-                alertHourlyLimitHit(smtpConfig.name || smtpConfig.from_email, smtpConfig.from_email, 100, smtpConfig.hourly_limit).catch(() => {});
-                // Rebuild rotator without this config
-                rotator = new SmtpRotator(getEnabledSmtpConfigs());
-                
+                // Auto-disable if config just hit its limit
+                const limitCheck = autoDisableOnLimit(currentSmtp);
+                if (limitCheck.disabled) {
+                  rotator = new SmtpRotator(getEnabledSmtpConfigs());
+                }
+
                 send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped,
                   remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
-                  email: emailLog.contact_email, status: 'skipped',
-                  error: 'Rate limited - will retry with another SMTP',
-                  server: smtpConfig.name || smtpConfig.host });
-                  
-                // If no more SMTPs available, mark campaign as paused and schedule auto-resume
-                if (rotator.availableCount === 0) {
+                  email: emailLog.contact_email, status: 'sent',
+                  subject: mailOptions.subject as string, server: currentSmtp.name || currentSmtp.host });
+              } catch (error: any) {
+                if (isRateLimitError(error)) {
+                  // Remember name before reassigning
+                  const failedSmtpName = currentSmtp.name || currentSmtp.from_email || 'Unknown';
+                  // Mark this SMTP as tried so rotator skips it for the next call
+                  rotator.markTried(currentSmtp.id);
+                  // Disable this SMTP for this hour
+                  getDb().prepare("UPDATE smtp_config SET enabled = 0, updated_at = datetime('now') WHERE id = ?").run(currentSmtp.id);
+                  alertHourlyLimitHit(currentSmtp.name || currentSmtp.from_email, currentSmtp.from_email, 100, currentSmtp.hourly_limit).catch(() => {});
+
+                  // Try next SMTP with the SAME email
+                  const nextSmtp = rotator.next();
+                  if (nextSmtp && nextSmtp.id !== currentSmtp.id) {
+                    currentSmtp = nextSmtp;
+                    remainingSmtpAttempts--;
+                    send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped,
+                      remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
+                      email: emailLog.contact_email, status: 'retrying',
+                      error: `${failedSmtpName} rate limited, trying ${currentSmtp.name || currentSmtp.host}...`,
+                      server: currentSmtp.name || currentSmtp.host });
+                    continue; // retry with next SMTP
+                  }
+
+                  // All SMTPs exhausted — pause campaign
                   getDb().prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND status = 'sending'").run(id);
                   pauseScheduler();
-                  // Schedule auto-resume in 65 minutes (after hourly limit window resets)
+                  alertAllExhausted(getEnabledSmtpConfigs().length, totalQueued.count - totalSent - totalFailed - totalSkipped).catch(() => {});
                   setTimeout(() => {
                     const reenabled = reEnableExpiredLimits();
                     if (reenabled.length > 0) {
@@ -313,22 +325,20 @@ export async function GET(
                   closed = true;
                   break;
                 }
-                // Don't count as failed - email stays queued for retry
-                continue;
-              }
-              
-              // Other errors: mark as failed (permanent error)
-              db.prepare(
-                "UPDATE email_logs SET status = 'failed', error_message = ?, smtp_config_id = ? WHERE id = ?"
-              ).run(error.message || 'Unknown error', smtpConfig.id, emailLog.id);
-              totalFailed++;
-              // Send connection failure alert
-              alertConnectionFailed(smtpConfig.name || smtpConfig.from_email, smtpConfig.from_email, error.message || 'Unknown error').catch(() => {});
 
-              send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped,
-                remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
-                email: emailLog.contact_email, status: 'failed', error: error.message,
-                server: smtpConfig.name || smtpConfig.host });
+                // Non-rate-limit error: mark as failed permanently
+                db.prepare(
+                  "UPDATE email_logs SET status = 'failed', error_message = ?, smtp_config_id = ? WHERE id = ?"
+                ).run(error.message || 'Unknown error', currentSmtp.id, emailLog.id);
+                totalFailed++;
+                emailSent = true; // don't retry non-rate-limit errors
+                alertConnectionFailed(currentSmtp.name || currentSmtp.from_email, currentSmtp.from_email, error.message || 'Unknown error').catch(() => {});
+
+                send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped,
+                  remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total,
+                  email: emailLog.contact_email, status: 'failed', error: error.message,
+                  server: currentSmtp.name || currentSmtp.host });
+              }
             }
           }
         }
