@@ -108,6 +108,7 @@ export default function ComposePage() {
   const [useSubjectRotation, setUseSubjectRotation] = useState(false);
   const [useTemplateRotation, setUseTemplateRotation] = useState(false);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [tags, setTags] = useState("");
   const [useAbTesting, setUseAbTesting] = useState(false);
   const [abVariantA, setAbVariantA] = useState("");
   const [abVariantB, setAbVariantB] = useState("");
@@ -549,6 +550,7 @@ export default function ComposePage() {
           ...form,
           scheduled_at: action === "schedule" ? form.scheduled_at : null,
           reply_to: form.reply_to || null,
+          tags: tags || null,
           subject_rotation: subjectRotation.length > 0 ? subjectRotation : null,
           template_rotation: templateRotation.length > 1 ? templateRotation : null,
           enable_tracking: form.enable_tracking,
@@ -721,6 +723,18 @@ export default function ComposePage() {
               </label>
               <input className="input" placeholder="e.g., Monthly Newsletter - August 2026"
                 value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.375rem" }}>
+                Tags (optional)
+              </label>
+              <input className="input" placeholder="e.g., Job Outreach, Newsletter"
+                value={tags} onChange={(e) => setTags(e.target.value)} />
+              <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+                Organize campaigns with tags for easy filtering.
+              </p>
             </div>
 
             {/* Template */}

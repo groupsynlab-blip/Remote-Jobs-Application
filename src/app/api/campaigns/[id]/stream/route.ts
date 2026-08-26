@@ -13,6 +13,8 @@ import {
   isDomainThrottled,
   recordDomainSend,
   isRateLimitError,
+  isBlacklisted,
+  wasAlreadySent,
 } from '@/lib/email';
 import { isSchedulerPaused, pauseScheduler, resumeScheduler } from '@/lib/scheduler';
 

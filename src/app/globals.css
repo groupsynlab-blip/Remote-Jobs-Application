@@ -316,3 +316,27 @@ tr:hover {
 main > div {
   animation: fadeIn 0.25s ease-out;
 }
+
+
+/* ═══ Dark Mode ══════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-card: rgba(30, 41, 59, 0.85);
+  --bg-card-solid: #1e293b;
+  --fg-primary: #f1f5f9;
+  --fg-secondary: #cbd5e1;
+  --muted: #94a3b8;
+  --border: #334155;
+  --border-light: #1e293b;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+[data-theme="dark"] .card {
+  border-color: rgba(51, 65, 85, 0.6);
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #475569; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+[data-theme="dark"] th { background: #1e293b; }
+[data-theme="dark"] tr:hover { background: rgba(99, 102, 241, 0.05); }

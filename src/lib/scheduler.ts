@@ -555,6 +555,24 @@ async function processPausedCampaign(campaignId: string): Promise<void> {
   }
 }
 
+
+/** Auto-ramp warmup configs — increase daily limit by 2 every 3 days */
+function autoRampWarmup(): void {
+  const db = getDb();
+  const activeWarmups = db.prepare(
+    "SELECT * FROM warmup_configs WHERE status = 'active'"
+  ).all() as any[];
+  
+  for (const w of activeWarmups) {
+    if (w.current_day > 0 && w.current_day % 3 === 0 && w.daily_limit < 100) {
+      const newLimit = Math.min(w.daily_limit + 2, 100);
+      if (newLimit !== w.daily_limit) {
+        db.prepare("UPDATE warmup_configs SET daily_limit = ? WHERE id = ?").run(newLimit, w.id);
+        console.log(`[Scheduler] Warmup auto-ramp: ${w.id.slice(0,8)} daily_limit ${w.daily_limit} -> ${newLimit}`);
+      }
+    }
+  }
+}
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

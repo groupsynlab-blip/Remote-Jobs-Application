@@ -72,6 +72,7 @@ function initializeDb(db: Database.Database) {
       template_id TEXT NOT NULL,
       contact_list_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'draft',
+      tags TEXT DEFAULT '',
       scheduled_at TEXT,
       delay_seconds INTEGER NOT NULL DEFAULT 2,
       reply_to TEXT,
@@ -122,6 +123,16 @@ function initializeDb(db: Database.Database) {
       campaign_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS email_blacklist (
+      id TEXT PRIMARY KEY,
+      email TEXT,
+      domain TEXT,
+      reason TEXT DEFAULT 'manual',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_blacklist_email ON email_blacklist(email);
+    CREATE INDEX IF NOT EXISTS idx_blacklist_domain ON email_blacklist(domain);
+
 
     CREATE INDEX IF NOT EXISTS idx_email_bounces_email ON email_bounces(email);
 

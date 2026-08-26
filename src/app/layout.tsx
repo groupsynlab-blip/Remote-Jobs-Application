@@ -31,7 +31,8 @@ export default function RootLayout({
     >
       <body className="min-h-full flex" style={{ background: "var(--bg-primary)" }}>
         <AppShell>{children}</AppShell>
-      </body>
+      <KeyboardShortcuts />
+  </body>
     </html>
   );
 }

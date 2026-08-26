@@ -68,6 +68,31 @@ export function isSmtpRateLimited(config: SmtpConfig): { limited: boolean; reaso
 }
 
 /** Check if an error is a rate limit / throttling error from the SMTP server */
+
+/** Check if an email or its domain is blacklisted */
+
+/** Check if an email was already sent in a previous campaign */
+export function wasAlreadySent(email: string, excludeCampaignId?: string): boolean {
+  const db = getDb();
+  let query = "SELECT id FROM email_logs WHERE contact_email = ? AND status = 'sent'";
+  const params: string[] = [email.toLowerCase()];
+  if (excludeCampaignId) {
+    query += " AND campaign_id != ?";
+    params.push(excludeCampaignId);
+  }
+  query += " LIMIT 1";
+  const result = db.prepare(query).get(...params);
+  return !!result;
+}
+export function isBlacklisted(email: string): boolean {
+  const db = getDb();
+  const domain = email.split('@')[1]?.toLowerCase();
+  const emailLower = email.toLowerCase();
+  const match = db.prepare(
+    'SELECT id FROM email_blacklist WHERE email = ? OR domain = ? LIMIT 1'
+  ).get(emailLower, domain);
+  return !!match;
+}
 export function isRateLimitError(error: any): boolean {
   const msg = (error.message || '').toLowerCase();
   const code = (error.code || '').toLowerCase();
