@@ -10,7 +10,10 @@ export default function SettingsPage() {
   const [blacklist, setBlacklist] = useState<BlacklistItem[]>([]);
   const [newBlacklistEmail, setNewBlacklistEmail] = useState("");
   const [newBlacklistDomain, setNewBlacklistDomain] = useState("");
-  const [activeTab, setActiveTab] = useState<"general" | "blacklist" | "about">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "about">("general");
+  const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
+  const [editingSmtp, setEditingSmtp] = useState<any>(null);
+  const [smtpForm, setSmtpForm] = useState({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true });
 
   useEffect(() => {
     fetch("/api/settings").then(r => r.json()).then(d => {
@@ -19,7 +22,37 @@ export default function SettingsPage() {
       if (d.theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
     });
     fetchBlacklist();
+    fetchSmtpConfigs();
   }, []);
+
+  const fetchSmtpConfigs = () => {
+    fetch("/api/smtp").then(r => r.json()).then(d => setSmtpConfigs(Array.isArray(d) ? d : d.configs || []));
+  };
+
+  const saveSmtp = async () => {
+    const method = editingSmtp ? "PUT" : "POST";
+    const body = editingSmtp ? { ...smtpForm, id: editingSmtp.id } : smtpForm;
+    await fetch("/api/smtp", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    setEditingSmtp(null);
+    setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true });
+    fetchSmtpConfigs();
+  };
+
+  const deleteSmtp = async (id: string) => {
+    if (!confirm("Delete this SMTP config?")) return;
+    await fetch(`/api/smtp?id=${id}`, { method: "DELETE" });
+    fetchSmtpConfigs();
+  };
+
+  const toggleSmtp = async (id: string) => {
+    await fetch("/api/smtp", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "toggle", id }) });
+    fetchSmtpConfigs();
+  };
+
+  const editSmtp = (config: any) => {
+    setEditingSmtp(config);
+    setSmtpForm({ name: config.name || "", host: config.host || "smtp.gmail.com", port: config.port || 587, user: config.user || "", pass: config.pass || "", from_name: config.from_name || "", from_email: config.from_email || "", daily_limit: config.daily_limit || 500, hourly_limit: config.hourly_limit || 100, secure: Boolean(config.secure), enabled: Boolean(config.enabled) });
+  };
 
   const fetchBlacklist = () => {
     fetch("/api/blacklist").then(r => r.json()).then(setBlacklist);
@@ -52,6 +85,7 @@ export default function SettingsPage() {
 
   const tabs = [
     { id: "general" as const, label: "⚙️ General", },
+    { id: "smtp" as const, label: "📧 SMTP", },
     { id: "blacklist" as const, label: "🚫 Blacklist", },
     { id: "about" as const, label: "ℹ️ About", },
   ];
@@ -100,6 +134,61 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "smtp" && (
+        <div className="card" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ fontWeight: 600 }}>SMTP Configurations</h3>
+            <button className="btn btn-primary" onClick={() => { setEditingSmtp(null); setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true }); }}>+ Add SMTP</button>
+          </div>
+
+          {/* SMTP Form */}
+          {editingSmtp !== null || document.querySelector('[data-show-smtp-form]') ? (
+            <div style={{ padding: "1rem", borderRadius: "0.75rem", border: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
+              <h4 style={{ fontWeight: 600, marginBottom: "0.75rem", fontSize: "0.875rem" }}>{editingSmtp ? "Edit SMTP" : "Add SMTP"}</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Name</label><input className="input" value={smtpForm.name} onChange={e => setSmtpForm({...smtpForm, name: e.target.value})} placeholder="Gmail SMTP" /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Host</label><input className="input" value={smtpForm.host} onChange={e => setSmtpForm({...smtpForm, host: e.target.value})} /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Port</label><input className="input" type="number" value={smtpForm.port} onChange={e => setSmtpForm({...smtpForm, port: Number(e.target.value)})} /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Username</label><input className="input" value={smtpForm.user} onChange={e => setSmtpForm({...smtpForm, user: e.target.value})} /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Password</label><input className="input" type="password" value={smtpForm.pass} onChange={e => setSmtpForm({...smtpForm, pass: e.target.value})} /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>From Name</label><input className="input" value={smtpForm.from_name} onChange={e => setSmtpForm({...smtpForm, from_name: e.target.value})} placeholder="Bulk Emailer" /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>From Email</label><input className="input" value={smtpForm.from_email} onChange={e => setSmtpForm({...smtpForm, from_email: e.target.value})} /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Daily Limit</label><input className="input" type="number" value={smtpForm.daily_limit} onChange={e => setSmtpForm({...smtpForm, daily_limit: Number(e.target.value)})} /></div>
+                <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Hourly Limit</label><input className="input" type="number" value={smtpForm.hourly_limit} onChange={e => setSmtpForm({...smtpForm, hourly_limit: Number(e.target.value)})} /></div>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                <button className="btn btn-primary" onClick={saveSmtp}>{editingSmtp ? "Update" : "Save"}</button>
+                <button className="btn btn-secondary" onClick={() => setEditingSmtp(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* SMTP List */}
+          {smtpConfigs.length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: "0.8rem" }}>No SMTP configs yet. Add one to start sending!</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {smtpConfigs.map(c => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1rem", borderRadius: "0.5rem", border: "1px solid var(--border)", fontSize: "0.8rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: c.enabled ? "#10b981" : "#ef4444", flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{c.from_email} • {c.host}:{c.port} • {c.daily_limit}/day, {c.hourly_limit}/hr</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.375rem" }}>
+                    <button onClick={() => toggleSmtp(c.id)} style={{ padding: "0.25rem 0.5rem", borderRadius: "0.375rem", border: "none", fontSize: "0.7rem", cursor: "pointer", background: c.enabled ? "rgba(239,68,68,0.1)" : "rgba(16,185,129,0.1)", color: c.enabled ? "#ef4444" : "#10b981" }}>{c.enabled ? "Disable" : "Enable"}</button>
+                    <button onClick={() => editSmtp(c)} style={{ padding: "0.25rem 0.5rem", borderRadius: "0.375rem", border: "1px solid var(--border)", background: "transparent", fontSize: "0.7rem", cursor: "pointer" }}>Edit</button>
+                    <button onClick={() => deleteSmtp(c.id)} style={{ padding: "0.25rem 0.5rem", borderRadius: "0.375rem", border: "none", background: "rgba(239,68,68,0.1)", color: "#ef4444", fontSize: "0.7rem", cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
