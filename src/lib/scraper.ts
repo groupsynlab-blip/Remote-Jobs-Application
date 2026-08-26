@@ -179,65 +179,62 @@ function extractSearchLinks(html: string, excludeDomains: string[], max: number)
 
 // ═══ Search Engine: DuckDuckGo (HTML lite with cookie flow) ═════════
 
-async function searchDuckDuckGo(query: string, maxResults: number): Promise<SearchResult[]> {
+async function searchDuckDuckGo(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
-  const searchQuery = encodeURIComponent(query);
+  const seenUrls = new Set<string>();
 
   try {
-    // Step 1: GET the lite page to get cookies
-    const firstResp = await fetchUrl(`https://html.duckduckgo.com/html/`, {
-      timeoutMs: 10000,
-      headers: {
-        'Referer': 'https://duckduckgo.com/',
-      },
-    });
-
-    // Extract cookies from the response
-    const cookieHeader = (await fetch(`https://html.duckduckgo.com/html/`, {
-      method: 'GET',
-      headers: { 'User-Agent': getRandomUA() },
-      redirect: 'manual',
-    }).then(r => r.headers.getSetCookie?.() || [])).join('; ');
-
-    // Step 2: POST with the search query (mimicking form submission)
-    const formData = `q=${searchQuery}&b=&kl=`;
-    const { body } = await fetchUrl(`https://html.duckduckgo.com/html/`, {
-      method: 'POST',
-      timeoutMs: 15000,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Referer': 'https://html.duckduckgo.com/html/',
-        ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
-      },
-      body: formData,
-    });
-
-    // Extract result URLs from the HTML
-    // Pattern: class="result__a" href="...//duckduckgo.com/l/?uddg=ENCODED_URL..."
-    const resultRegex = /class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match;
-    let count = 0;
-
-    while ((match = resultRegex.exec(body)) !== null && count < maxResults) {
-      let url = match[1];
-      const title = match[2].replace(/<[^>]+>/g, '').trim();
-
-      // DuckDuckGo wraps URLs in redirects via uddg parameter
-      const uddgMatch = url.match(/uddg=([^&]+)/);
-      if (uddgMatch) {
-        url = decodeURIComponent(uddgMatch[1]);
-      }
-
-      if (url.startsWith('http')) {
-        results.push({ url, title, snippet: '' });
-        count++;
-      }
+    // DuckDuckGo Lite doesn't have native pagination, but we can try multiple variations
+    const queries = [query];
+    // Add regional suffix if country specified
+    if (_country && _country !== 'us') {
+      queries.push(`${query} site:${_country === 'uk' ? 'co.uk' : _country === 'ng' ? 'com.ng' : _country === 'za' ? 'co.za' : _country === 'in' ? 'co.in' : _country === 'ca' ? 'ca' : _country === 'au' ? 'com.au' : _country}`);
     }
 
-    // Fallback: if no result__a, try any external links
-    if (results.length === 0) {
-      const fallback = extractSearchLinks(body, ['duckduckgo.com'], maxResults);
-      results.push(...fallback);
+    for (const q of queries) {
+      if (results.length >= maxResults) break;
+
+      const searchQuery = encodeURIComponent(q);
+      const cookieHeader = (await fetch(`https://html.duckduckgo.com/html/`, {
+        method: 'GET',
+        headers: { 'User-Agent': getRandomUA() },
+        redirect: 'manual',
+      }).then(r => r.headers.getSetCookie?.() || [])).join('; ');
+
+      const formData = `q=${searchQuery}&b=&kl=`;
+      const { body } = await fetchUrl(`https://html.duckduckgo.com/html/`, {
+        method: 'POST',
+        timeoutMs: 15000,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Referer': 'https://html.duckduckgo.com/html/',
+          ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
+        },
+        body: formData,
+      });
+
+      const resultRegex = /class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let match;
+
+      while ((match = resultRegex.exec(body)) !== null && results.length < maxResults) {
+        let url = match[1];
+        const title = match[2].replace(/<[^>]+>/g, '').trim();
+        const uddgMatch = url.match(/uddg=([^&]+)/);
+        if (uddgMatch) url = decodeURIComponent(uddgMatch[1]);
+        if (url.startsWith('http') && !seenUrls.has(url)) {
+          seenUrls.add(url);
+          results.push({ url, title, snippet: '' });
+        }
+      }
+
+      if (results.length === 0) {
+        const fallback = extractSearchLinks(body, ['duckduckgo.com'], maxResults - results.length);
+        for (const fb of fallback) {
+          if (!seenUrls.has(fb.url)) { seenUrls.add(fb.url); results.push(fb); }
+        }
+      }
+
+      await sleep(1000 + Math.random() * 1000);
     }
 
     console.log(`[Scraper] DuckDuckGo: found ${results.length} results for "${query}"`);
@@ -250,49 +247,57 @@ async function searchDuckDuckGo(query: string, maxResults: number): Promise<Sear
 
 // ═══ Search Engine: Bing ════════════════════════════════════════════
 
-async function searchBing(query: string, maxResults: number): Promise<SearchResult[]> {
+async function searchBing(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
-  const searchQuery = encodeURIComponent(query);
+  const seenUrls = new Set<string>();
 
   try {
-    const { body } = await fetchUrl(
-      `https://www.bing.com/search?q=${searchQuery}&count=${maxResults + 5}`,
-      {
-        timeoutMs: 15000,
-        headers: {
-          'Referer': 'https://www.bing.com/',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
+    // Bing supports pagination via first=offset parameter
+    const pagesNeeded = Math.ceil(maxResults / 50);
+    for (let page = 0; page < Math.min(pagesNeeded, 10); page++) {
+      if (results.length >= maxResults) break;
+      const offset = page * 50;
+      let searchQ = query;
+      if (_country && _country !== 'us') {
+        const cc = _country.toUpperCase();
+        searchQ = `${query} cc=${cc}`;
       }
-    );
-
-    // Bing wraps all result links in redirect URLs:
-    // href="https://www.bing.com/ck/a?...&u=a1aHR0cHM6Ly9..."
-    // The actual URL is base64-encoded after "a1" in the u= parameter
-    // Bing uses &amp; in HTML entities for URLs
-    const bingRedirectRegex = /href="https:\/\/www\.bing\.com\/ck\/a\?[^"]*(?:&amp;|&)u=a1([A-Za-z0-9+/=]+)/g;
-    let match;
-    let count = 0;
-
-    while ((match = bingRedirectRegex.exec(body)) !== null && count < maxResults) {
-      try {
-        const decoded = Buffer.from(match[1], 'base64').toString('utf-8');
-        const url = decoded;
-        if (url.startsWith('http')) {
-          // Extract title from nearby <h2><a> tag
-          const titleMatch = body.substring(Math.max(0, match.index - 500), match.index)
-            .match(/<h2[^>]*><a[^>]*>([\s\S]*?)<\/a><\/h2>/i);
-          const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-          results.push({ url, title, snippet: '' });
-          count++;
+      const searchQuery = encodeURIComponent(searchQ);
+      const { body } = await fetchUrl(
+        `https://www.bing.com/search?q=${searchQuery}&count=50&first=${offset}`,
+        {
+          timeoutMs: 15000,
+          headers: {
+            'Referer': 'https://www.bing.com/',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
         }
-      } catch {}
-    }
+      );
 
-    // Fallback: extract all non-bing links
-    if (results.length === 0) {
-      const fallback = extractSearchLinks(body, ['bing.com', 'microsoft.com'], maxResults);
-      results.push(...fallback);
+      const bingRedirectRegex = /href="https:\/\/www\.bing\.com\/ck\/a\?[^"]*(?:&amp;|&)u=a1([A-Za-z0-9+/=]+)/g;
+      let match;
+
+      while ((match = bingRedirectRegex.exec(body)) !== null && results.length < maxResults) {
+        try {
+          const decoded = Buffer.from(match[1], 'base64').toString('utf-8');
+          if (decoded.startsWith('http') && !seenUrls.has(decoded)) {
+            seenUrls.add(decoded);
+            const titleMatch = body.substring(Math.max(0, match.index - 500), match.index)
+              .match(/<h2[^>]*><a[^>]*>([\s\S]*?)<\/a><\/h2>/i);
+            const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+            results.push({ url: decoded, title, snippet: '' });
+          }
+        } catch {}
+      }
+
+      if (results.length === 0) {
+        const fallback = extractSearchLinks(body, ['bing.com', 'microsoft.com'], maxResults - results.length);
+        for (const fb of fallback) {
+          if (!seenUrls.has(fb.url)) { seenUrls.add(fb.url); results.push(fb); }
+        }
+      }
+
+      await sleep(1500 + Math.random() * 1500);
     }
 
     console.log(`[Scraper] Bing: found ${results.length} results for "${query}"`);
@@ -305,37 +310,45 @@ async function searchBing(query: string, maxResults: number): Promise<SearchResu
 
 // ═══ Search Engine: Brave ═══════════════════════════════════════════
 
-async function searchBrave(query: string, maxResults: number): Promise<SearchResult[]> {
+async function searchBrave(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
-  const searchQuery = encodeURIComponent(query);
+  const seenUrls = new Set<string>();
 
   try {
-    const { body } = await fetchUrl(`https://search.brave.com/search?q=${searchQuery}`, {
-      timeoutMs: 15000,
-      headers: {
-        'Referer': 'https://search.brave.com/',
-      },
-    });
+    // Brave supports pagination via offset parameter
+    const pagesNeeded = Math.ceil(maxResults / 20);
+    for (let page = 0; page < Math.min(pagesNeeded, 15); page++) {
+      if (results.length >= maxResults) break;
+      const offset = page * 20;
+      const searchQuery = encodeURIComponent(query);
+      const countryParam = _country && _country !== 'us' ? `&country=${_country.toUpperCase()}` : '';
+      const { body } = await fetchUrl(`https://search.brave.com/search?q=${searchQuery}&offset=${offset}${countryParam}`, {
+        timeoutMs: 15000,
+        headers: {
+          'Referer': 'https://search.brave.com/',
+        },
+      });
 
-    // Brave uses <a> tags with class containing "result-header"
-    const resultRegex = /<a[^>]*class="[^"]*result-header[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match;
-    let count = 0;
+      const resultRegex = /<a[^>]*class="[^"]*result-header[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let match;
 
-    while ((match = resultRegex.exec(body)) !== null && count < maxResults) {
-      const url = match[1];
-      const title = match[2].replace(/<[^>]+>/g, '').trim();
-
-      if (url.startsWith('http') && !url.includes('brave.com')) {
-        results.push({ url, title, snippet: '' });
-        count++;
+      while ((match = resultRegex.exec(body)) !== null && results.length < maxResults) {
+        const url = match[1];
+        const title = match[2].replace(/<[^>]+>/g, '').trim();
+        if (url.startsWith('http') && !url.includes('brave.com') && !seenUrls.has(url)) {
+          seenUrls.add(url);
+          results.push({ url, title, snippet: '' });
+        }
       }
-    }
 
-    // Fallback: extract external links
-    if (results.length === 0) {
-      const fallback = extractSearchLinks(body, ['brave.com'], maxResults);
-      results.push(...fallback);
+      if (results.length === 0) {
+        const fallback = extractSearchLinks(body, ['brave.com'], maxResults - results.length);
+        for (const fb of fallback) {
+          if (!seenUrls.has(fb.url)) { seenUrls.add(fb.url); results.push(fb); }
+        }
+      }
+
+      await sleep(1500 + Math.random() * 1500);
     }
 
     console.log(`[Scraper] Brave: found ${results.length} results for "${query}"`);
@@ -348,39 +361,48 @@ async function searchBrave(query: string, maxResults: number): Promise<SearchRes
 
 // ═══ Search Engine: Google ══════════════════════════════════════════
 
-async function searchGoogle(query: string, maxResults: number): Promise<SearchResult[]> {
+async function searchGoogle(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
-  const searchQuery = encodeURIComponent(query);
+  const seenUrls = new Set<string>();
 
   try {
-    const { body } = await fetchUrl(
-      `https://www.google.com/search?q=${searchQuery}&num=${maxResults + 5}&hl=en`,
-      {
-        timeoutMs: 15000,
-        headers: {
-          'Referer': 'https://www.google.com/',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
+    // Google supports pagination via start parameter
+    const pagesNeeded = Math.ceil(maxResults / 10);
+    for (let page = 0; page < Math.min(pagesNeeded, 15); page++) {
+      if (results.length >= maxResults) break;
+      const start = page * 10;
+      const countryParam = _country && _country !== 'us' ? `&gl=${_country.toUpperCase()}` : '';
+      const searchQuery = encodeURIComponent(query);
+      const { body } = await fetchUrl(
+        `https://www.google.com/search?q=${searchQuery}&num=10&start=${start}&hl=en${countryParam}`,
+        {
+          timeoutMs: 15000,
+          headers: {
+            'Referer': 'https://www.google.com/',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+        }
+      );
+
+      const resultRegex = /href="\/url\?q=([^&"]+)/gi;
+      let match;
+
+      while ((match = resultRegex.exec(body)) !== null && results.length < maxResults) {
+        const url = decodeURIComponent(match[1]);
+        if (url.startsWith('http') && !url.includes('google.com') && !url.includes('googleapis.com') && !seenUrls.has(url)) {
+          seenUrls.add(url);
+          results.push({ url, title: '', snippet: '' });
+        }
       }
-    );
 
-    // Google wraps result URLs in /url?q=REAL_URL&...
-    const resultRegex = /href="\/url\?q=([^&"]+)/gi;
-    let match;
-    let count = 0;
-
-    while ((match = resultRegex.exec(body)) !== null && count < maxResults) {
-      const url = decodeURIComponent(match[1]);
-      if (url.startsWith('http') && !url.includes('google.com') && !url.includes('googleapis.com')) {
-        results.push({ url, title: '', snippet: '' });
-        count++;
+      if (results.length === 0) {
+        const fallback = extractSearchLinks(body, ['google.com', 'googleapis.com', 'gstatic.com'], maxResults - results.length);
+        for (const fb of fallback) {
+          if (!seenUrls.has(fb.url)) { seenUrls.add(fb.url); results.push(fb); }
+        }
       }
-    }
 
-    // Also try extracting external links as fallback
-    if (results.length === 0) {
-      const fallback = extractSearchLinks(body, ['google.com', 'googleapis.com', 'gstatic.com'], maxResults);
-      results.push(...fallback);
+      await sleep(2000 + Math.random() * 2000);
     }
 
     console.log(`[Scraper] Google: found ${results.length} results for "${query}"`);
@@ -393,40 +415,47 @@ async function searchGoogle(query: string, maxResults: number): Promise<SearchRe
 
 // ═══ Search Engine: Startpage ══════════════════════════════════════
 
-async function searchStartpage(query: string, maxResults: number): Promise<SearchResult[]> {
+async function searchStartpage(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
-  const searchQuery = encodeURIComponent(query);
+  const seenUrls = new Set<string>();
 
   try {
-    const { body } = await fetchUrl(
-      `https://www.startpage.com/do/dsearch?query=${searchQuery}&cat=web`,
-      {
-        timeoutMs: 15000,
-        headers: {
-          'Referer': 'https://www.startpage.com/',
-        },
+    const pagesNeeded = Math.ceil(maxResults / 10);
+    for (let page = 0; page < Math.min(pagesNeeded, 10); page++) {
+      if (results.length >= maxResults) break;
+      const startPage = page + 1;
+      const countryParam = _country && _country !== 'us' ? `&language=${_country}` : '';
+      const searchQuery = encodeURIComponent(query);
+      const { body } = await fetchUrl(
+        `https://www.startpage.com/do/dsearch?query=${searchQuery}&cat=web&startat=${startPage}${countryParam}`,
+        {
+          timeoutMs: 15000,
+          headers: {
+            'Referer': 'https://www.startpage.com/',
+          },
+        }
+      );
+
+      const resultRegex = /<a[^>]*class="[^"]*result[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let match;
+
+      while ((match = resultRegex.exec(body)) !== null && results.length < maxResults) {
+        const url = match[1];
+        const title = match[2].replace(/<[^>]+>/g, '').trim();
+        if (url.startsWith('http') && !url.includes('startpage.com') && !seenUrls.has(url)) {
+          seenUrls.add(url);
+          results.push({ url, title, snippet: '' });
+        }
       }
-    );
 
-    // Startpage uses <a class="w-gl__result-url ..."> for result URLs
-    const resultRegex = /<a[^>]*class="[^"]*result[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match;
-    let count = 0;
-
-    while ((match = resultRegex.exec(body)) !== null && count < maxResults) {
-      const url = match[1];
-      const title = match[2].replace(/<[^>]+>/g, '').trim();
-
-      if (url.startsWith('http') && !url.includes('startpage.com')) {
-        results.push({ url, title, snippet: '' });
-        count++;
+      if (results.length === 0) {
+        const fallback = extractSearchLinks(body, ['startpage.com'], maxResults - results.length);
+        for (const fb of fallback) {
+          if (!seenUrls.has(fb.url)) { seenUrls.add(fb.url); results.push(fb); }
+        }
       }
-    }
 
-    // Fallback
-    if (results.length === 0) {
-      const fallback = extractSearchLinks(body, ['startpage.com'], maxResults);
-      results.push(...fallback);
+      await sleep(2000 + Math.random() * 2000);
     }
 
     console.log(`[Scraper] Startpage: found ${results.length} results for "${query}"`);
@@ -437,7 +466,7 @@ async function searchStartpage(query: string, maxResults: number): Promise<Searc
   return results;
 }
 
-const SEARCH_ENGINES: Record<SearchEngine, (query: string, max: number) => Promise<SearchResult[]>> = {
+const SEARCH_ENGINES: Record<SearchEngine, (query: string, max: number, country?: string) => Promise<SearchResult[]>> = {
   duckduckgo: searchDuckDuckGo,
   bing: searchBing,
   brave: searchBrave,
@@ -556,12 +585,47 @@ export async function processScrapeJob(jobId: string): Promise<void> {
 
 async function processSearchJob(jobId: string, job: ScrapeJob): Promise<void> {
   let engines: SearchEngine[] = ['duckduckgo', 'bing', 'brave'];
+  let country: string | undefined;
+  let fileType: string | undefined;
+
   if (job.search_engines) {
-    try { engines = JSON.parse(job.search_engines); } catch {}
+    try {
+      const parsed = JSON.parse(job.search_engines);
+      if (Array.isArray(parsed)) {
+        engines = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        engines = parsed.engines || ['duckduckgo', 'bing', 'brave'];
+        country = parsed.country;
+        fileType = parsed.fileType;
+      }
+    } catch {}
   }
 
-  const queries = job.query.split('\n').map(q => q.trim()).filter(q => q.length > 0);
-  const maxResults = job.max_results || 50;
+  const rawQueries = job.query.split('\n').map(q => q.trim()).filter(q => q.length > 0);
+  const queries: string[] = [];
+
+  // Build queries with country and file type modifiers
+  for (const q of rawQueries) {
+    let modifiedQuery = q;
+    if (fileType) {
+      modifiedQuery += ` filetype:${fileType}`;
+    }
+    if (country && country !== 'us') {
+      // Add country-specific domain hints
+      const countryDomains: Record<string, string> = {
+        uk: 'site:co.uk', ng: 'site:com.ng', za: 'site:co.za',
+        in: 'site:co.in', au: 'site:com.au', ca: 'site:ca',
+        ke: 'site:co.ke', gh: 'site:com.gh',
+      };
+      const domainHint = countryDomains[country];
+      if (domainHint && !modifiedQuery.toLowerCase().includes('site:')) {
+        modifiedQuery += ` ${domainHint}`;
+      }
+    }
+    queries.push(modifiedQuery);
+  }
+
+  const maxResults = job.max_results || 200;
 
   const allFoundEmails = new Map<string, { url: string; title: string | null; engine: string }>();
   let totalPagesScraped = 0;
@@ -580,7 +644,7 @@ async function processSearchJob(jobId: string, job: ScrapeJob): Promise<void> {
 
       try {
         const engine = SEARCH_ENGINES[engineName];
-        const searchResults = await engine(query, maxResults);
+        const searchResults = await engine(query, maxResults, country);
         totalPagesScraped += searchResults.length;
 
         // Visit each search result — up to 3 at a time to avoid blocking
@@ -601,7 +665,7 @@ async function processSearchJob(jobId: string, job: ScrapeJob): Promise<void> {
             }
           });
 
-        const crawled = await runWithConcurrency(fetchTasks, 3);
+        const crawled = await runWithConcurrency(fetchTasks, 5);
 
         for (const item of crawled) {
           if (item.status !== 'fulfilled' || !item.value) continue;
@@ -617,8 +681,8 @@ async function processSearchJob(jobId: string, job: ScrapeJob): Promise<void> {
           }
         }
 
-        // Flush results to DB periodically (every 25 emails) and yield
-        if (pendingFlush.length >= 25) {
+        // Flush results to DB periodically (every 50 emails) and yield
+        if (pendingFlush.length >= 50) {
           flushResultsToDb(jobId, pendingFlush, totalPagesScraped, allFoundEmails.size);
           pendingFlush.length = 0;
           await yieldToEventLoop();
@@ -663,9 +727,7 @@ async function processCrawlJob(jobId: string, job: ScrapeJob): Promise<void> {
     }
 
     const batch = queue.splice(0, 5); // smaller batches to avoid blocking
-    const newLinks: { url: string; depth: number }[] = [];
-
-    const fetchTasks = batch.map(({ url, depth }) => async () => {
+    const newLinks: { url: string; depth: number }[] = [];        const fetchTasks = batch.map(({ url, depth }) => async () => {
       let normalizedUrl = url;
       try {
         const parsed = new URL(url);
@@ -710,7 +772,7 @@ async function processCrawlJob(jobId: string, job: ScrapeJob): Promise<void> {
       return { newEmails, crawled: true };
     });
 
-    const results = await runWithConcurrency(fetchTasks, 3);
+    const results = await runWithConcurrency(fetchTasks, 5);
 
     for (const r of results) {
       if (r.status === 'fulfilled' && r.value?.crawled) {

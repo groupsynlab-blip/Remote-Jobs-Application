@@ -363,6 +363,22 @@ function initializeDb(db: Database.Database) {
       FOREIGN KEY (tag_id) REFERENCES contact_tags(id) ON DELETE CASCADE,
       FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
     );
+
+    -- ═══ Scrape Presets ═══
+
+    CREATE TABLE IF NOT EXISTS scrape_presets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'search',
+      queries TEXT NOT NULL DEFAULT '',
+      engines TEXT NOT NULL DEFAULT '["duckduckgo","bing","brave"]',
+      max_results INTEGER NOT NULL DEFAULT 200,
+      crawl_depth INTEGER NOT NULL DEFAULT 1,
+      country TEXT DEFAULT 'us',
+      file_type TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   } catch (e: any) {
     console.error('[DB] Main schema init error:', e.message);

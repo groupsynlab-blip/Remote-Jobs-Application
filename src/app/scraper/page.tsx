@@ -48,8 +48,10 @@ export default function ScraperPage() {
   const [scrapeTab, setScrapeTab] = useState<ScrapeTab>("search");
   const [query, setQuery] = useState("");
   const [selectedEngines, setSelectedEngines] = useState<string[]>(["duckduckgo", "bing", "brave"]);
-  const [maxResults, setMaxResults] = useState(50);
+  const [maxResults, setMaxResults] = useState(200);
   const [crawlDepth, setCrawlDepth] = useState(1);
+  const [country, setCountry] = useState('us');
+  const [fileType, setFileType] = useState('');
 
   // Job state
   const [jobId, setJobId] = useState<string | null>(null);
@@ -63,12 +65,17 @@ export default function ScraperPage() {
   const [resultTotal, setResultTotal] = useState(0);
   const [resultDomains, setResultDomains] = useState(0);
   const [emailFilter, setEmailFilter] = useState("");
-  const RESULTS_PER_PAGE = 50;
+  const RESULTS_PER_PAGE = 100;
 
   // Autocomplete state
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionSummary, setSuggestionSummary] = useState<{ total: number; fixable: number } | null>(null);
+
+  // Preset state
+  const [presets, setPresets] = useState<any[]>([]);
+  const [presetName, setPresetName] = useState('');
+  const [showSavePreset, setShowSavePreset] = useState(false);
 
   // Polling
   const pollRef = useRef<NodeJS.Timeout | null>(null);
@@ -81,6 +88,63 @@ export default function ScraperPage() {
         ? prev.filter((e) => e !== engineId)
         : [...prev, engineId]
     );
+  };
+
+  // ─── Preset management ─────────────────────────────────────────
+
+  useEffect(() => {
+    fetch('/api/scrape/presets')
+      .then(r => r.json())
+      .then(data => setPresets(data.presets || []))
+      .catch(() => {});
+  }, []);
+
+  const loadPreset = (preset: any) => {
+    setScrapeTab(preset.mode || 'search');
+    setQuery(preset.queries || '');
+    try {
+      setSelectedEngines(JSON.parse(preset.engines));
+    } catch {
+      setSelectedEngines(['duckduckgo', 'bing', 'brave']);
+    }
+    setMaxResults(preset.max_results || 200);
+    setCrawlDepth(preset.crawl_depth || 1);
+    setCountry(preset.country || 'us');
+    setFileType(preset.file_type || '');
+    setShowSavePreset(false);
+  };
+
+  const savePreset = async () => {
+    if (!presetName.trim()) return;
+    try {
+      const res = await fetch('/api/scrape/presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: presetName.trim(),
+          mode: scrapeTab,
+          queries: query,
+          engines: selectedEngines,
+          maxResults,
+          crawlDepth,
+          country,
+          fileType,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPresets(prev => [data.preset, ...prev]);
+        setPresetName('');
+        setShowSavePreset(false);
+      }
+    } catch {}
+  };
+
+  const deletePreset = async (id: string) => {
+    try {
+      await fetch(`/api/scrape/presets?id=${id}`, { method: 'DELETE' });
+      setPresets(prev => prev.filter(p => p.id !== id));
+    } catch {}
   };
 
   // ─── Analyze scraped emails for suggestions ─────────────────────
@@ -143,6 +207,8 @@ export default function ScraperPage() {
       if (scrapeTab === "search") {
         body.engines = selectedEngines;
         body.maxResults = maxResults;
+        if (country) body.country = country;
+        if (fileType) body.fileType = fileType;
       } else {
         body.crawlDepth = crawlDepth;
       }
@@ -274,6 +340,64 @@ export default function ScraperPage() {
         </p>
       </div>
 
+      {/* ─── Presets Section ────────────────────────────────── */}
+      {!jobId && (
+        <div className="card" style={{ marginBottom: "1.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>📋 Saved Presets:</span>
+              {presets.length === 0 ? (
+                <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>No presets saved yet</span>
+              ) : (
+                presets.map(p => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ fontSize: "0.75rem", padding: "0.25rem 0.75rem" }}
+                      onClick={() => loadPreset(p)}
+                    >
+                      {p.mode === 'search' ? '🔍' : '🌐'} {p.name}
+                    </button>
+                    <button
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.7rem', color: 'var(--danger)', padding: '0.1rem 0.3rem' }}
+                      onClick={() => deletePreset(p.id)}
+                      title="Delete preset"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: "0.75rem", padding: "0.35rem 0.75rem" }}
+              onClick={() => setShowSavePreset(!showSavePreset)}
+            >
+              💾 Save Current Settings
+            </button>
+          </div>
+          {showSavePreset && (
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <input
+                className="input"
+                placeholder="Preset name (e.g., Job Seekers US)"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                style={{ flex: 1, fontSize: "0.8rem" }}
+                onKeyDown={(e) => e.key === 'Enter' && savePreset()}
+              />
+              <button className="btn btn-primary" style={{ fontSize: "0.8rem" }} onClick={savePreset}>
+                💾 Save
+              </button>
+              <button className="btn btn-secondary" style={{ fontSize: "0.8rem" }} onClick={() => setShowSavePreset(false)}>
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ─── Input Section ──────────────────────────────────── */}
       {!jobId && (
         <div className="card" style={{ marginBottom: "1.5rem" }}>
@@ -333,22 +457,78 @@ export default function ScraperPage() {
               {/* Max Results */}
               <div style={{ marginTop: "1.5rem" }}>
                 <label style={{ fontWeight: 600, fontSize: "0.875rem", display: "block", marginBottom: "0.5rem" }}>
-                  Max Results Per Engine: {maxResults}
+                  Max Results Per Query: {maxResults.toLocaleString()}
                 </label>
                 <input
                   type="range"
-                  min="10"
-                  max="200"
-                  step="10"
+                  min="100"
+                  max="2000"
+                  step="100"
                   value={maxResults}
                   onChange={(e) => setMaxResults(parseInt(e.target.value))}
                   style={{ width: "100%" }}
                 />
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "var(--muted)" }}>
-                  <span>10</span>
-                  <span>200</span>
+                  <span>100</span>
+                  <span>2,000 per query</span>
+                </div>
+                <p style={{ marginTop: "0.25rem", fontSize: "0.75rem", color: "var(--accent)", fontWeight: 500 }}>
+                  📊 Up to {(maxResults * selectedEngines.length * Math.max(1, query.split('\n').filter(q => q.trim()).length)).toLocaleString()} total emails across {selectedEngines.length} engine{selectedEngines.length !== 1 ? 's' : ''} and {Math.max(1, query.split('\n').filter(q => q.trim()).length)} quer{Math.max(1, query.split('\n').filter(q => q.trim()).length) !== 1 ? 'ies' : 'y'}
+                </p>
+              </div>
+
+              {/* Country & File Type */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1.5rem" }}>
+                <div>
+                  <label style={{ fontWeight: 600, fontSize: "0.875rem", display: "block", marginBottom: "0.5rem" }}>
+                    🌍 Country / Region
+                  </label>
+                  <select
+                    className="input"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                    style={{ width: "100%" }}
+                  >
+                    <option value="">All Countries</option>
+                    <option value="us">🇺🇸 United States</option>
+                    <option value="uk">🇬🇧 United Kingdom</option>
+                    <option value="ca">🇨🇦 Canada</option>
+                    <option value="au">🇦🇺 Australia</option>
+                    <option value="de">🇩🇪 Germany</option>
+                    <option value="fr">🇫🇷 France</option>
+                    <option value="ng">🇳🇬 Nigeria</option>
+                    <option value="za">🇿🇦 South Africa</option>
+                    <option value="in">🇮🇳 India</option>
+                    <option value="br">🇧🇷 Brazil</option>
+                    <option value="jp">🇯🇵 Japan</option>
+                    <option value="mx">🇲🇽 Mexico</option>
+                    <option value="ke">🇰🇪 Kenya</option>
+                    <option value="gh">🇬🇭 Ghana</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontWeight: 600, fontSize: "0.875rem", display: "block", marginBottom: "0.5rem" }}>
+                    📄 File Type (optional)
+                  </label>
+                  <select
+                    className="input"
+                    value={fileType}
+                    onChange={(e) => setFileType(e.target.value)}
+                    style={{ width: "100%" }}
+                  >
+                    <option value="">All File Types</option>
+                    <option value="pdf">📄 PDF Documents</option>
+                    <option value="doc">📝 Word Documents</option>
+                    <option value="xls">📊 Excel Spreadsheets</option>
+                    <option value="ppt">📽️ PowerPoint</option>
+                    <option value="html">🌐 Web Pages</option>
+                    <option value="txt">📃 Text Files</option>
+                  </select>
                 </div>
               </div>
+              <p style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--muted)" }}>
+                💡 File type filter searches for specific document types containing emails (e.g., PDF resumes, contact lists)
+              </p>
             </div>
           )}
 

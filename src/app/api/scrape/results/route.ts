@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const jobId = searchParams.get('jobId');
     const page = parseInt(searchParams.get('page') || '0', 10);
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);
+    const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 500);
     
     if (!jobId) {
       return NextResponse.json({ error: 'jobId required' }, { status: 400 });

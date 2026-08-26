@@ -10,7 +10,7 @@ import type { ScrapeJob } from '@/lib/types';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { query, mode, engines, maxResults, crawlDepth } = body;
+    const { query, mode, engines, maxResults, crawlDepth, country, fileType } = body;
     
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
       return Response.json({ error: 'Query is required' }, { status: 400 });
@@ -26,7 +26,16 @@ export async function POST(request: NextRequest) {
     db.prepare(`
       INSERT INTO scrape_jobs (id, mode, query, search_engines, max_results, crawl_depth)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(jobId, mode, query.trim(), engines ? JSON.stringify(engines) : null, maxResults || 50, crawlDepth || 1);
+    `).run(jobId, mode, query.trim(), engines ? JSON.stringify(engines) : null, maxResults || 200, crawlDepth || 1);
+    
+    // Store country and fileType in the query JSON for the scraper to use
+    const meta: Record<string, any> = {};
+    if (country) meta.country = country;
+    if (fileType) meta.fileType = fileType;
+    if (Object.keys(meta).length > 0) {
+      db.prepare('UPDATE scrape_jobs SET search_engines = ? WHERE id = ?')
+        .run(JSON.stringify({ engines: engines || ['duckduckgo', 'bing', 'brave'], ...meta }), jobId);
+    }
     
     console.log(`[Scrape API] Created job ${jobId.slice(0, 8)}... (mode: ${mode})`);
     

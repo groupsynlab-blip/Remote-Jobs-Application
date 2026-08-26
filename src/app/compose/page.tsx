@@ -1391,6 +1391,43 @@ export default function ComposePage() {
             </div>
           )}
 
+          {/* ─── SMTP Warning Banners ────────────────────────── */}
+          {smtpQuotas.length > 0 && (() => {
+            const nearLimit = smtpQuotas.filter(s => s.enabled && s.hourly_limit > 0 && s.hourly_used >= s.hourly_limit * 0.8);
+            const atLimit = smtpQuotas.filter(s => s.enabled && s.hourly_limit > 0 && s.hourly_used >= s.hourly_limit);
+            const warnings: { msg: string; color: string; bg: string; border: string }[] = [];
+            if (atLimit.length > 0 && smtpQuotas.length > 0) {
+              warnings.push({
+                msg: `🔴 ${atLimit.map(s => s.name).join(', ')} ${atLimit.length === 1 ? 'has' : 'have'} hit their hourly limit (${atLimit[0].hourly_used}/${atLimit[0].hourly_limit}). Auto-resumes when the hourly window resets.`,
+                color: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.3)',
+              });
+            }
+            if (nearLimit.length > 0 && nearLimit.length !== atLimit.length) {
+              const remaining = nearLimit.filter(s => !atLimit.find(a => a.id === s.id));
+              if (remaining.length > 0) {
+                warnings.push({
+                  msg: `🟡 ${remaining.map(s => `${s.name} (${s.hourly_used}/${s.hourly_limit})`).join(', ')} — approaching hourly limit. Send remaining emails quickly.`,
+                  color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.3)',
+                });
+              }
+            }
+            const dailyNearLimit = smtpQuotas.filter(s => s.enabled && s.daily_limit > 0 && s.daily_used >= s.daily_limit * 0.9 && !atLimit.find(a => a.id === s.id));
+            if (dailyNearLimit.length > 0) {
+              warnings.push({
+                msg: `⏳ ${dailyNearLimit.map(s => `${s.name} (${s.daily_used}/${s.daily_limit} daily)`).join(', ')} — approaching daily sending limit.`,
+                color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.08)', border: 'rgba(139, 92, 246, 0.3)',
+              });
+            }
+            return warnings.length > 0 ? warnings.map((w, i) => (
+              <div key={i} style={{
+                padding: '0.625rem 0.75rem', borderRadius: '0.5rem', marginBottom: '0.5rem',
+                background: w.bg, border: `1px solid ${w.border}`,
+                fontSize: '0.8rem', fontWeight: 500, color: w.color,
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+              }}>{w.msg}</div>
+            )) : null;
+          })()}
+
           {/* Last email detail */}
           {lastEmail && (
             <div style={{
