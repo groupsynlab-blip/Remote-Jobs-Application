@@ -149,6 +149,7 @@ export default function ComposePage() {
   const [lastError, setLastError] = useState<string>("");
   const [isComplete, setIsComplete] = useState(false);
   const [activeCampaign, setActiveCampaign] = useState<any>(null);
+  const [showCampaignDetail, setShowCampaignDetail] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const autoPausedRef = useRef(false);
@@ -622,29 +623,121 @@ export default function ComposePage() {
       </div>
 
       {/* ─── Active Campaign Banner ─────────────────────── */}
-      {activeCampaign && !sendLoopActive && (
-        <div className="card" style={{
-          marginBottom: "1rem",
-          background: "rgba(59, 130, 246, 0.08)",
-          border: "1px solid rgba(59, 130, 246, 0.3)",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: "1rem", padding: "0.875rem 1rem",
-        }}>
+      {activeCampaign && !sendLoopActive && !showCampaignDetail && (
+        <div
+          className="card"
+          onClick={() => setShowCampaignDetail(true)}
+          style={{
+            marginBottom: "1rem",
+            background: activeCampaign.status === 'sending'
+              ? "rgba(59, 130, 246, 0.08)"
+              : "rgba(234, 179, 8, 0.08)",
+            border: `1px solid ${activeCampaign.status === 'sending' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: "1rem", padding: "0.875rem 1rem",
+            cursor: "pointer", transition: "all 0.15s",
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.005)'}
+          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <span style={{ fontSize: "1.25rem" }}>📤</span>
+            <span style={{ fontSize: "1.25rem" }}>{activeCampaign.status === 'sending' ? '📤' : '⏸'}</span>
             <div>
               <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>
-                Campaign "{activeCampaign.name}" is still sending
+                {activeCampaign.status === 'sending' ? 'Campaign sending' : 'Campaign paused'}: "{activeCampaign.name}"
               </div>
               <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-                {activeCampaign.sent_count || 0} sent, {activeCampaign.failed_count || 0} failed, {activeCampaign.total_count - (activeCampaign.sent_count || 0) - (activeCampaign.failed_count || 0)} remaining
+                {activeCampaign.sent_count || 0} sent, {activeCampaign.failed_count || 0} failed, {activeCampaign.total_count - (activeCampaign.sent_count || 0) - (activeCampaign.failed_count || 0)} remaining • Click to open
               </div>
             </div>
           </div>
-          <button className="btn btn-primary" onClick={() => reconnectToCampaign(activeCampaign)}
-            style={{ fontSize: "0.8rem", padding: "0.5rem 1rem", whiteSpace: "nowrap" }}>
-            ▶ Resume Sending
-          </button>
+          <div style={{ fontSize: "0.75rem", color: "var(--accent)", fontWeight: 600, whiteSpace: "nowrap" }}>
+            Click to open →
+          </div>
+        </div>
+      )}
+
+      {/* ─── Active Campaign Detail Card ──────────────────── */}
+      {activeCampaign && !sendLoopActive && showCampaignDetail && (
+        <div className="card" style={{ marginBottom: "1.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                <span style={{
+                  padding: "0.2rem 0.625rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600,
+                  background: activeCampaign.status === 'sending' ? 'rgba(59,130,246,0.1)' : 'rgba(234,179,8,0.1)',
+                  color: activeCampaign.status === 'sending' ? '#3b82f6' : '#eab308',
+                  textTransform: 'uppercase',
+                }}>{activeCampaign.status}</span>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: 700 }}>{activeCampaign.name}</h2>
+              </div>
+              <p style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                Created {activeCampaign.created_at ? new Date(activeCampaign.created_at).toLocaleString() : '—'}
+                {activeCampaign.tags && <span style={{ marginLeft: '0.5rem', padding: '0.125rem 0.5rem', borderRadius: '1rem', background: 'var(--accent-light)', color: 'var(--accent)', fontSize: '0.65rem' }}>{activeCampaign.tags}</span>}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowCampaignDetail(false)}
+              style={{ padding: '0.3rem 0.75rem', borderRadius: '0.5rem', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.75rem', cursor: 'pointer' }}
+            >✕ Close</button>
+          </div>
+
+          {/* Campaign Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1rem' }}>
+            <div style={{ textAlign: 'center', padding: '0.75rem', borderRadius: '0.5rem', background: 'var(--bg-secondary)' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent)' }}>{activeCampaign.total_count}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Total</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(16,185,129,0.08)' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10b981' }}>{activeCampaign.sent_count || 0}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Sent ✅</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(239,68,68,0.08)' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444' }}>{activeCampaign.failed_count || 0}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Failed ❌</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(245,158,11,0.08)' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f59e0b' }}>{activeCampaign.total_count - (activeCampaign.sent_count || 0) - (activeCampaign.failed_count || 0)}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Pending 📧</div>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--muted)', marginBottom: '0.25rem' }}>
+              <span>Progress</span>
+              <span>{activeCampaign.total_count > 0 ? Math.round(((activeCampaign.sent_count || 0) / activeCampaign.total_count) * 100) : 0}%</span>
+            </div>
+            <div style={{ height: '10px', borderRadius: '5px', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: '5px',
+                width: `${activeCampaign.total_count > 0 ? ((activeCampaign.sent_count || 0) / activeCampaign.total_count) * 100 : 0}%`,
+                background: 'linear-gradient(90deg, #10b981, #34d399)',
+                transition: 'width 0.5s',
+              }} />
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => { reconnectToCampaign(activeCampaign); setShowCampaignDetail(false); }}
+              style={{ fontSize: '0.85rem', padding: '0.625rem 1.25rem' }}
+            >
+              ▶ Resume Sending
+            </button>
+            <button
+              onClick={() => router.push(`/history`)}
+              style={{
+                fontSize: '0.85rem', padding: '0.625rem 1.25rem', borderRadius: '0.5rem',
+                border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                color: 'var(--text)', cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              📋 View in History
+            </button>
+          </div>
         </div>
       )}
 
