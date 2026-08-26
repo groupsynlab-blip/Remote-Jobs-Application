@@ -13,6 +13,8 @@ export default function SettingsPage() {
   const [enableTracking, setEnableTracking] = useState(true);
   const [enableUnsubscribe, setEnableUnsubscribe] = useState(true);
   const [webhookEmail, setWebhookEmail] = useState("");
+  const [slackWebhook, setSlackWebhook] = useState("");
+  const [discordWebhook, setDiscordWebhook] = useState("");
   const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "about">("general");
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
@@ -30,8 +32,16 @@ export default function SettingsPage() {
       setEnableTracking(d.enable_tracking !== "false");
       setEnableUnsubscribe(d.enable_unsubscribe !== "false");
       setWebhookEmail(d.webhook_email_recipient || "");
+      setSlackWebhook(d.slack_webhook_url || "");
+      setDiscordWebhook(d.discord_webhook_url || "");
     });
   }, []);
+
+  const saveWebhookSettings = async () => {
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "slack_webhook_url", value: slackWebhook }) });
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "discord_webhook_url", value: discordWebhook }) });
+    alert("Webhook settings saved!");
+  };
 
   const saveTrackingSettings = async () => {
     await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "enable_tracking", value: String(enableTracking) }) });
