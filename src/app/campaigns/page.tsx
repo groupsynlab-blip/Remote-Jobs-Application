@@ -72,7 +72,7 @@ export default function CampaignsPage() {
     setTemplates(tplData.templates || []);
     setLists(listData.lists || []);
     const smtpDataParsed = await smtpRes.json();
-    setSmtpConfigs((smtpDataParsed.smtps || []).filter((s: any) => s.enabled));    setLoading(false);
+    setSmtpConfigs((Array.isArray(smtpDataParsed) ? smtpDataParsed : (smtpDataParsed.smtps || [])).filter((s: any) => s.enabled));    setLoading(false);
   };
 
   const startEdit = (c: Campaign) => {
@@ -237,7 +237,7 @@ export default function CampaignsPage() {
                                         const next = e.target.checked ? [...current, smtp.id] : current.filter((id) => id !== smtp.id);
                                         setEditForm({ ...editForm, selected_smtp_ids: next });
                                       }} />
-                                    <span>{smtp.name || smtp.host}</span>
+                                    <span>{smtp.name || smtp.from_email || smtp.host}</span>
                                   </label>
                                 ))}
                               </div>

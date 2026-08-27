@@ -234,7 +234,7 @@ export default function ComposePage() {
       setTemplates(t);
       setLists(c.lists || []);
       setSchedulerStatus(s);
-      const enabledSmtps = (smtpData.smtps || []).filter((s: any) => s.enabled);
+      const enabledSmtps = (Array.isArray(smtpData) ? smtpData : (smtpData.smtps || [])).filter((s: any) => s.enabled);
       setSmtpConfigs(enabledSmtps);
       setSelectedSmtpIds(enabledSmtps.map((s: any) => s.id));
       setIsPaused(s.paused || false);
@@ -1112,7 +1112,7 @@ export default function ComposePage() {
                       }} />
                     <div style={{ fontSize: "0.8rem" }}>
                       <div style={{ fontWeight: 500 }}>{smtp.name || smtp.host}</div>
-                      <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{smtp.email || smtp.user}</div>
+                      <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{smtp.from_email || smtp.email || smtp.user}</div>
                     </div>
                   </label>
                 ))}
