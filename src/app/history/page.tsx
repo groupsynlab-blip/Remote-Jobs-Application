@@ -90,7 +90,7 @@ export default function HistoryPage() {
 
       {/* Export Buttons */}
       <div style={{ marginBottom: "1rem", display: "flex", gap: "0.5rem" }}>
-        <a href="/api/analytics/export?format=csv" download style={{
+        <a href="/api/export?type=analytics" download style={{
           display: "inline-flex", alignItems: "center", gap: "0.5rem",
           padding: "0.5rem 1rem", borderRadius: "0.5rem", border: "1px solid var(--border)",
           background: "var(--bg-card-solid)", color: "var(--fg-secondary)",

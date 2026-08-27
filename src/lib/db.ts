@@ -117,6 +117,15 @@ function initializeDb(db: Database.Database) {
       ip_address TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS email_clicks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tracking_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      clicked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      user_agent TEXT,
+      ip_address TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS email_bounces (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL,
@@ -435,6 +444,29 @@ function initializeDb(db: Database.Database) {
       '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>I was told you might be interested in remote earning opportunities. We have an opening at Synlab Group for receivable agents and it seems like it could be a good match for someone with your skills.</p><p>It is entirely commission-based - you earn from every transaction you process. A lot of flexibility in how and when you work.</p><p>Let me know if you want to hear more about it.</p><p>Cheers,<br>Pierre Fischer</p></div>');
     insertTemplate.run('tpl-short', 'Synlab - Short & Sweet', 'Quick opportunity for you',
       '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>Receivable agent role at Synlab Group - fully remote, commission-based, flexible hours.</p><p>Interested? Happy to share details.</p><p>Pierre Fischer</p></div>');
+  }
+
+  // Migrate campaigns table to add selected_smtp_ids column
+  try {
+    const campCols = db.prepare("PRAGMA table_info(campaigns)").all() as { name: string }[];
+    if (!campCols.some(c => c.name === 'selected_smtp_ids')) {
+      db.exec(`ALTER TABLE campaigns ADD COLUMN selected_smtp_ids TEXT`);
+    }
+  } catch (e: any) {
+    console.error("[DB] campaigns migration error:", e.message);
+  }
+
+  // Migrate email_bounces to add error_message and bounced_at columns
+  try {
+    const bounceCols = db.prepare("PRAGMA table_info(email_bounces)").all() as { name: string }[];
+    if (!bounceCols.some(c => c.name === 'error_message')) {
+      db.exec(`ALTER TABLE email_bounces ADD COLUMN error_message TEXT`);
+    }
+    if (!bounceCols.some(c => c.name === 'bounced_at')) {
+      db.exec(`ALTER TABLE email_bounces ADD COLUMN bounced_at TEXT`);
+    }
+  } catch (e: any) {
+    console.error("[DB] email_bounces migration error:", e.message);
   }
 }
 
