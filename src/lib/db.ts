@@ -422,6 +422,22 @@ function initializeDb(db: Database.Database) {
   }
 }
 
+  // Seed default templates if none exist
+  const templateCount = db.prepare('SELECT COUNT(*) as count FROM email_templates').get() as { count: number };
+  if (templateCount.count === 0) {
+    const insertTemplate = db.prepare('INSERT INTO email_templates (id, name, subject, body) VALUES (?, ?, ?, ?)');
+    insertTemplate.run('tpl-casual', 'Synlab - Casual Intro', 'Quick question about your work',
+      '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>I came across your profile and was impressed by your background. We are expanding our remote receivable operations at Synlab Group and I think you could be a great fit.</p><p>It is a commission-based role where you earn a percentage of each transaction processed. Fully remote, work on your own schedule.</p><p>Would you be open to a quick chat about it?</p><p>Best,<br>Pierre Fischer</p></div>');
+    insertTemplate.run('tpl-opportunity', 'Synlab - Opportunity', 'Remote receivable role - interested?',
+      '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>Hope this finds you well. I am reaching out because Synlab Group is looking for detail-oriented people to join our receivable team remotely.</p><p>The compensation is entirely performance-based - you keep a percentage of every transaction you process. No ceiling on what you can earn.</p><p>If you have experience in finance or accounts receivable, I would love to tell you more about it.</p><p>Thanks for your time,<br>Pierre Fischer<br>Synlab Group</p></div>');
+    insertTemplate.run('tpl-direct', 'Synlab - Direct', 'Receivable Agent opportunity',
+      '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>Just a quick note - we are building out our receivable team at Synlab Group and looking for people who want to earn based on their performance.</p><p>The role is fully remote, commission-based, and you set your own hours. Some of our agents are doing really well with it.</p><p>Happy to share more details if you are curious.</p><p>All the best,<br>Pierre Fischer</p></div>');
+    insertTemplate.run('tpl-referral', 'Synlab - Referral style', 'Someone suggested I reach out',
+      '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>I was told you might be interested in remote earning opportunities. We have an opening at Synlab Group for receivable agents and it seems like it could be a good match for someone with your skills.</p><p>It is entirely commission-based - you earn from every transaction you process. A lot of flexibility in how and when you work.</p><p>Let me know if you want to hear more about it.</p><p>Cheers,<br>Pierre Fischer</p></div>');
+    insertTemplate.run('tpl-short', 'Synlab - Short & Sweet', 'Quick opportunity for you',
+      '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>Receivable agent role at Synlab Group - fully remote, commission-based, flexible hours.</p><p>Interested? Happy to share details.</p><p>Pierre Fischer</p></div>');
+  }
+
 // ─── Settings helpers ────────────────────────────────────────────
 
 export function getSetting(key: string): string | null {
