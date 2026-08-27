@@ -114,6 +114,8 @@ export default function ComposePage() {
   const [abVariantB, setAbVariantB] = useState("");
   const [abTestSize, setAbTestSize] = useState(100);
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
+  const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
+  const [selectedSmtpIds, setSelectedSmtpIds] = useState<string[]>([]);
   const [form, setForm] = useState({
     name: "",
     template_id: "",
@@ -227,10 +229,14 @@ export default function ComposePage() {
       fetch("/api/templates").then((r) => r.json()),
       fetch("/api/contacts").then((r) => r.json()),
       fetch("/api/scheduler").then((r) => r.json()),
-    ]).then(([t, c, s]) => {
+      fetch("/api/smtp").then((r) => r.json()),
+    ]).then(([t, c, s, smtpData]) => {
       setTemplates(t);
       setLists(c.lists || []);
       setSchedulerStatus(s);
+      const enabledSmtps = (smtpData.smtps || []).filter((s: any) => s.enabled);
+      setSmtpConfigs(enabledSmtps);
+      setSelectedSmtpIds(enabledSmtps.map((s: any) => s.id));
       setIsPaused(s.paused || false);
       setIsOnline(s.online !== false);
 
@@ -563,6 +569,7 @@ export default function ComposePage() {
           template_rotation: templateRotation.length > 1 ? templateRotation : null,
           enable_tracking: form.enable_tracking,
           enable_unsubscribe: form.enable_unsubscribe,
+          selected_smtp_ids: selectedSmtpIds.length > 0 ? selectedSmtpIds : null,
         }),
       });
       const data = await res.json();
@@ -1067,6 +1074,54 @@ export default function ComposePage() {
               <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "0.25rem" }}>
                 When recipients hit &quot;Reply&quot;, their response goes to this address. Leave empty to use the default.
               </p>
+            </div>
+
+                        {/* SMTP Selection */}
+            <div>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.375rem" }}>
+                SMTP Accounts
+              </label>
+              <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+                Choose which SMTP accounts to use for sending. Emails will be rotated across selected accounts.
+              </p>
+              <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
+                  onClick={() => setSelectedSmtpIds(smtpConfigs.map((s) => s.id))}>Select All</button>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
+                  onClick={() => setSelectedSmtpIds([])}>Deselect All</button>
+                <span style={{ fontSize: "0.75rem", color: "var(--muted)", alignSelf: "center" }}>
+                  {selectedSmtpIds.length} of {smtpConfigs.length} selected
+                </span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.5rem" }}>
+                {smtpConfigs.map((smtp) => (
+                  <label key={smtp.id} style={{
+                    display: "flex", alignItems: "center", gap: "0.5rem",
+                    padding: "0.5rem 0.75rem", borderRadius: "0.5rem", cursor: "pointer",
+                    background: selectedSmtpIds.includes(smtp.id) ? "rgba(34,197,94,0.1)" : "var(--background)",
+                    border: `1px solid ${selectedSmtpIds.includes(smtp.id) ? "var(--success)" : "var(--border)"}`,
+                    transition: "all 0.2s",
+                  }}>
+                    <input type="checkbox" checked={selectedSmtpIds.includes(smtp.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedSmtpIds([...selectedSmtpIds, smtp.id]);
+                        } else {
+                          setSelectedSmtpIds(selectedSmtpIds.filter((id) => id !== smtp.id));
+                        }
+                      }} />
+                    <div style={{ fontSize: "0.8rem" }}>
+                      <div style={{ fontWeight: 500 }}>{smtp.name || smtp.host}</div>
+                      <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{smtp.email || smtp.user}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {smtpConfigs.length === 0 && (
+                <p style={{ fontSize: "0.8rem", color: "var(--warning)", marginTop: "0.5rem" }}>
+                  Warning: No SMTP accounts configured. Add one in Settings.
+                </p>
+              )}
             </div>
 
             {/* Subject Rotation */}

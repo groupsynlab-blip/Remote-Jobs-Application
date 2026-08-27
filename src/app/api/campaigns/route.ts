@@ -47,9 +47,15 @@ export async function POST(request: NextRequest) {
       templateRotation = JSON.stringify(body.template_rotation);
     }
 
+    // Store selected SMTP IDs as JSON array
+    let selectedSmtpIds = null;
+    if (body.selected_smtp_ids && Array.isArray(body.selected_smtp_ids) && body.selected_smtp_ids.length > 0) {
+      selectedSmtpIds = JSON.stringify(body.selected_smtp_ids);
+    }
+
     db.prepare(`
-      INSERT INTO campaigns (id, name, template_id, contact_list_id, status, scheduled_at, delay_seconds, reply_to, subject_rotation, template_rotation, enable_tracking, enable_unsubscribe, total_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO campaigns (id, name, template_id, contact_list_id, status, scheduled_at, delay_seconds, reply_to, subject_rotation, template_rotation, selected_smtp_ids, enable_tracking, enable_unsubscribe, total_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       body.name,
@@ -61,6 +67,7 @@ export async function POST(request: NextRequest) {
       body.reply_to || null,
       subjectRotation,
       templateRotation,
+      selectedSmtpIds,
       body.enable_tracking !== undefined ? (body.enable_tracking ? 1 : 0) : 1,
       body.enable_unsubscribe !== undefined ? (body.enable_unsubscribe ? 1 : 0) : 1,
       totalCount

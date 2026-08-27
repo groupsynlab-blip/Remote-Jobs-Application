@@ -112,6 +112,36 @@ export async function PATCH(
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+
+    // General campaign edit
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (body.name !== undefined) { fields.push('name = ?'); values.push(body.name); }
+    if (body.template_id !== undefined) { fields.push('template_id = ?'); values.push(body.template_id); }
+    if (body.contact_list_id !== undefined) {
+      fields.push('contact_list_id = ?');
+      values.push(body.contact_list_id);
+      const countResult = db.prepare('SELECT COUNT(*) as count FROM contact_list_members WHERE contact_list_id = ?').get(body.contact_list_id) as { count: number };
+      fields.push('total_count = ?');
+      values.push(countResult.count);
+    }
+    if (body.delay_seconds !== undefined) { fields.push('delay_seconds = ?'); values.push(body.delay_seconds); }
+    if (body.reply_to !== undefined) { fields.push('reply_to = ?'); values.push(body.reply_to); }
+    if (body.selected_smtp_ids !== undefined) {
+      fields.push('selected_smtp_ids = ?');
+      values.push(Array.isArray(body.selected_smtp_ids) && body.selected_smtp_ids.length > 0 ? JSON.stringify(body.selected_smtp_ids) : null);
+    }
+    if (body.enable_tracking !== undefined) { fields.push('enable_tracking = ?'); values.push(body.enable_tracking ? 1 : 0); }
+    if (body.enable_unsubscribe !== undefined) { fields.push('enable_unsubscribe = ?'); values.push(body.enable_unsubscribe ? 1 : 0); }
+    if (body.status !== undefined) { fields.push('status = ?'); values.push(body.status); }
+
+    if (fields.length === 0) {
+      return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+    }
+
+    values.push(id);
+    db.prepare(`UPDATE campaigns SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update campaign' }, { status: 500 });
   }
@@ -125,6 +155,8 @@ export async function DELETE(
   try {
     const { id } = await params;
     const db = getDb();
+    db.prepare('DELETE FROM email_opens WHERE tracking_id IN (SELECT tracking_id FROM email_logs WHERE campaign_id = ?)').run(id);
+    db.prepare('DELETE FROM email_logs WHERE campaign_id = ?').run(id);
     db.prepare('DELETE FROM campaigns WHERE id = ?').run(id);
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -78,6 +78,7 @@ function initializeDb(db: Database.Database) {
       reply_to TEXT,
       subject_rotation TEXT,
       template_rotation TEXT,
+      selected_smtp_ids TEXT,
       enable_tracking INTEGER NOT NULL DEFAULT 1,
       enable_unsubscribe INTEGER NOT NULL DEFAULT 1,
       total_count INTEGER NOT NULL DEFAULT 0,

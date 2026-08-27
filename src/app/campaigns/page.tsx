@@ -53,15 +53,17 @@ export default function CampaignsPage() {
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
-    const [campRes, tplRes, listRes] = await Promise.all([
+    const [campRes, tplRes, listRes, smtpRes] = await Promise.all([
       fetch("/api/campaigns"),
       fetch("/api/templates"),
       fetch("/api/contacts"),
+      fetch("/api/smtp"),
     ]);
     const campData = await campRes.json();
     const tplData = await tplRes.json();
@@ -69,7 +71,8 @@ export default function CampaignsPage() {
     setCampaigns(Array.isArray(campData) ? campData : []);
     setTemplates(tplData.templates || []);
     setLists(listData.lists || []);
-    setLoading(false);
+    const smtpDataParsed = await smtpRes.json();
+    setSmtpConfigs((smtpDataParsed.smtps || []).filter((s: any) => s.enabled));    setLoading(false);
   };
 
   const startEdit = (c: Campaign) => {
@@ -82,7 +85,7 @@ export default function CampaignsPage() {
       reply_to: c.reply_to || "",
       enable_tracking: c.enable_tracking,
       enable_unsubscribe: c.enable_unsubscribe,
-    });
+      selected_smtp_ids: c.selected_smtp_ids ? JSON.parse(c.selected_smtp_ids) : smtpConfigs.map((s: any) => s.id),    });
   };
 
   const saveEdit = async () => {
@@ -214,6 +217,31 @@ export default function CampaignsPage() {
                                 </label>
                               </div>
                             </div>
+                            <div style={{ marginTop: "0.5rem" }}>
+                              <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>SMTP Accounts</label>
+                              <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.25rem" }}>Choose which SMTPs to use. Emails rotate across selected accounts.</p>
+                              <div style={{ display: "flex", gap: "0.375rem", marginBottom: "0.375rem" }}>
+                                <button type="button" className="btn btn-secondary" style={{ fontSize: "0.65rem", padding: "0.2rem 0.5rem" }}
+                                  onClick={() => setEditForm({ ...editForm, selected_smtp_ids: smtpConfigs.map((s: any) => s.id) })}>All</button>
+                                <button type="button" className="btn btn-secondary" style={{ fontSize: "0.65rem", padding: "0.2rem 0.5rem" }}
+                                  onClick={() => setEditForm({ ...editForm, selected_smtp_ids: [] })}>None</button>
+                              </div>
+                              <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
+                                {smtpConfigs.map((smtp) => (
+                                  <label key={smtp.id} style={{ display: "flex", alignItems: "center", gap: "0.25rem", padding: "0.25rem 0.5rem", borderRadius: "0.25rem", fontSize: "0.7rem",
+                                    background: (editForm.selected_smtp_ids || []).includes(smtp.id) ? "rgba(34,197,94,0.1)" : "var(--background)",
+                                    border: `1px solid ${(editForm.selected_smtp_ids || []).includes(smtp.id) ? "var(--success)" : "var(--border)"}`, cursor: "pointer" }}>
+                                    <input type="checkbox" checked={(editForm.selected_smtp_ids || []).includes(smtp.id)}
+                                      onChange={(e) => {
+                                        const current = (editForm.selected_smtp_ids as string[]) || [];
+                                        const next = e.target.checked ? [...current, smtp.id] : current.filter((id) => id !== smtp.id);
+                                        setEditForm({ ...editForm, selected_smtp_ids: next });
+                                      }} />
+                                    <span>{smtp.name || smtp.host}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
                             <div style={{ display: "flex", gap: "0.5rem" }}>
                               <button className="btn btn-primary" onClick={saveEdit} disabled={saving} style={{ fontSize: "0.8rem" }}>{saving ? "Saving..." : "💾 Save"}</button>
                               <button className="btn btn-secondary" onClick={() => setEditingId(null)} style={{ fontSize: "0.8rem" }}>Cancel</button>
@@ -252,14 +280,14 @@ export default function CampaignsPage() {
                       <td>
                         <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
                           <Link href={`/campaigns/${c.id}`} className="btn btn-secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", textDecoration: "none" }}>📊 Details</Link>
-                          <button className="btn btn-secondary" onClick={() => startEdit(c)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} disabled={c.status === "sending"}>✏️ Edit</button>
+                          <button className="btn btn-secondary" onClick={() => startEdit(c)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >✏️ Edit</button>
                           {confirmDelete === c.id ? (
                             <>
                               <button className="btn btn-danger" onClick={() => deleteCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }}>Confirm</button>
                               <button className="btn btn-secondary" onClick={() => setConfirmDelete(null)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }}>Cancel</button>
                             </>
                           ) : (
-                            <button className="btn btn-danger" onClick={() => setConfirmDelete(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} disabled={c.status === "sending"}>🗑️</button>
+                            <button className="btn btn-danger" onClick={() => setConfirmDelete(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >🗑️</button>
                           )}
                         </div>
                       </td>

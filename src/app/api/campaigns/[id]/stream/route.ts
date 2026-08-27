@@ -42,9 +42,18 @@ export async function GET(
     });
   }
 
-  const smtpConfigs = getEnabledSmtpConfigs();
+  // Use campaign's selected SMTPs or fall back to all enabled
+  let smtpConfigs = getEnabledSmtpConfigs();
+  if (campaign.selected_smtp_ids) {
+    try {
+      const selectedIds: string[] = JSON.parse(campaign.selected_smtp_ids);
+      if (selectedIds.length > 0) {
+        smtpConfigs = smtpConfigs.filter((c) => selectedIds.includes(c.id));
+      }
+    } catch { /* use all enabled */ }
+  }
   if (smtpConfigs.length === 0) {
-    return new Response(JSON.stringify({ error: 'No enabled SMTP configurations' }), {
+    return new Response(JSON.stringify({ error: 'No enabled SMTP configurations for this campaign' }), {
       status: 400, headers: { 'Content-Type': 'application/json' },
     });
   }
