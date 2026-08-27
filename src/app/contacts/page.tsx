@@ -64,6 +64,7 @@ export default function ContactsPage() {
   const [view, setView] = useState<"wizard" | "contacts" | "lists">("wizard");
   const [dataLoading, setDataLoading] = useState(true);
   const [pasteText, setPasteText] = useState("");
+  const [pastePreview, setPastePreview] = useState<{ email: string; name: string }[]>([]);
 
   useEffect(() => { loadData(); }, []);
 
@@ -75,6 +76,54 @@ export default function ContactsPage() {
     setLists(data.lists || []);
     setDataLoading(false);
   };
+
+  // Parse emails from text
+  const parseEmails = (text: string): { email: string; name: string }[] => {
+    const results: { email: string; name: string }[] = [];
+    const seen = new Set<string>();
+    const lines = text.split(/[\n,;]+/).map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      let email = "";
+      let name = "";
+      const angleMatch = line.match(/^(.+?)\s*<([^>]+)>$/);
+      if (angleMatch) {
+        name = angleMatch[1].trim().replace(/['"]/g, "");
+        email = angleMatch[2].trim().toLowerCase();
+      } else if (line.includes(",")) {
+        const parts = line.split(",").map((p) => p.trim().replace(/['"]/g, ""));
+        if (parts[0] && parts[0].includes("@")) {
+          email = parts[0].toLowerCase();
+          name = parts[1] || "";
+        } else {
+          name = parts[0];
+          email = (parts[1] || "").toLowerCase();
+        }
+      } else if (line.includes("@")) {
+        const spaceParts = line.split(/\s+/);
+        if (spaceParts[0].includes("@")) {
+          email = spaceParts[0].toLowerCase();
+          name = spaceParts.slice(1).join(" ").replace(/['"]/g, "");
+        } else {
+          email = spaceParts[spaceParts.length - 1].toLowerCase();
+          name = spaceParts.slice(0, -1).join(" ").replace(/['"]/g, "");
+        }
+      }
+      if (email && email.includes("@") && email.includes(".") && !seen.has(email)) {
+        seen.add(email);
+        results.push({ email, name: name.replace(/['"]/g, "").trim() });
+      }
+    }
+    return results;
+  };
+
+  // Auto-update paste preview
+  useEffect(() => {
+    if (pasteText.trim()) {
+      setPastePreview(parseEmails(pasteText));
+    } else {
+      setPastePreview([]);
+    }
+  }, [pasteText]);
 
   const processCsv = useCallback(async (text: string, fileName: string) => {
     setCsvText(text);
@@ -194,6 +243,69 @@ export default function ContactsPage() {
       <div style={{ marginBottom: "1.5rem" }}>
         <h1 style={{ fontSize: "1.75rem", fontWeight: 700 }}>Contacts</h1>
         <p style={{ color: "var(--muted)", marginTop: "0.25rem" }}>Import, manage, and organize your contacts</p>
+      </div>
+
+      {/* Quick Paste */}
+      <div className="card" style={{ marginBottom: "1.5rem" }}>
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+          📋 Quick Paste
+        </h2>
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+          Paste emails directly from clipboard. One per line, comma-separated, or <code>name &lt;email&gt;</code> format.
+        </p>
+        <textarea
+          className="input"
+          placeholder={"john@example.com\nJane Doe <jane@example.com>\nBob Smith, bob@company.com"}
+          value={pasteText}
+          onChange={(e) => setPasteText(e.target.value)}
+          style={{ minHeight: "100px", fontFamily: "monospace", fontSize: "0.8rem", marginBottom: "0.75rem" }}
+        />
+        {pastePreview.length > 0 && (
+          <div style={{ marginBottom: "0.75rem" }}>
+            <p style={{ fontSize: "0.75rem", fontWeight: 600, marginBottom: "0.25rem" }}>
+              Preview ({pastePreview.length} contacts):
+            </p>
+            <div style={{
+              maxHeight: "80px", overflowY: "auto", padding: "0.5rem",
+              background: "var(--background)", borderRadius: "0.375rem",
+              fontSize: "0.7rem", fontFamily: "monospace",
+            }}>
+              {pastePreview.slice(0, 10).map((p, i) => (
+                <div key={i} style={{ padding: "0.125rem 0", color: "var(--foreground)" }}>
+                  {p.name && <span style={{ color: "var(--muted)" }}>{p.name} — </span>}
+                  <span style={{ color: "var(--accent)" }}>{p.email}</span>
+                </div>
+              ))}
+              {pastePreview.length > 10 && (
+                <div style={{ color: "var(--muted)", fontSize: "0.65rem" }}>...and {pastePreview.length - 10} more</div>
+              )}
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            className="input"
+            placeholder="List name (optional)"
+            value={listName}
+            onChange={(e) => setListName(e.target.value)}
+            style={{ maxWidth: "250px" }}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={handlePasteImport}
+            disabled={!pasteText.trim() || loading}
+          >
+            {loading ? "⏳ Importing..." : `📥 Import ${pastePreview.length > 0 ? pastePreview.length + " contacts" : ""}`}
+          </button>
+          {uploadResult && (
+            <span style={{
+              fontSize: "0.8rem",
+              color: uploadResult.startsWith("Error") ? "var(--danger)" : "var(--success)",
+            }}>
+              {uploadResult}
+            </span>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
