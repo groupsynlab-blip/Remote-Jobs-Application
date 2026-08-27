@@ -30,10 +30,10 @@ function clearTransporterCache(configId: string): void {
 
 // ─── Template Rendering ─────────────────────────────────────────
 
-export function renderTemplate(template: string, variables: Record<string, string>): string {
+export function renderTemplate(template: string, variables: Record<string, string | undefined>): string {
   let rendered = template;
   for (const [key, value] of Object.entries(variables)) {
-    rendered = rendered.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'gi'), value);
+    rendered = rendered.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'gi'), value || '');
   }
   return rendered;
 }
@@ -337,7 +337,7 @@ export function buildMailOptions(
   trackingId?: string | null,
 ): { mailOptions: nodemailer.SendMailOptions; unsubscribeUrl?: string } {
   const fromAddress = `"${smtpConfig.from_name}" <${smtpConfig.from_email}>`;
-  const vars = { name: contactName, email: contactEmail };
+  const vars = { name: contactName || 'there', email: contactEmail };
 
   const renderedSubject = renderTemplate(subject, vars);
   let htmlBody = renderTemplate(templateBody, vars);

@@ -29,11 +29,18 @@ export async function POST(request: NextRequest) {
     const id = uuidv4();
 
     // Get contact count for the list
-    const countResult = db.prepare(
-      'SELECT COUNT(*) as count FROM contact_list_members WHERE contact_list_id = ?'
-    ).get(body.contact_list_id) as { count: number };
+    let totalCount = 0;
+    if (body.contact_list_id) {
+      const countResult = db.prepare(
+        'SELECT COUNT(*) as count FROM contact_list_members WHERE contact_list_id = ?'
+      ).get(body.contact_list_id) as { count: number };
+      totalCount = countResult.count;
+    }
 
-    const totalCount = countResult.count;
+    // Use provided total_count if no list
+    if (!totalCount && body.total_count) {
+      totalCount = body.total_count;
+    }
 
     // Store subject rotation as JSON array
     let subjectRotation = null;
