@@ -420,7 +420,6 @@ function initializeDb(db: Database.Database) {
   } catch (e: any) {
     console.error("[DB] email_logs migration error:", e.message);
   }
-}
 
   // Seed default templates if none exist
   const templateCount = db.prepare('SELECT COUNT(*) as count FROM email_templates').get() as { count: number };
@@ -437,6 +436,7 @@ function initializeDb(db: Database.Database) {
     insertTemplate.run('tpl-short', 'Synlab - Short & Sweet', 'Quick opportunity for you',
       '<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;"><p>Hi {{name}},</p><p>Receivable agent role at Synlab Group - fully remote, commission-based, flexible hours.</p><p>Interested? Happy to share details.</p><p>Pierre Fischer</p></div>');
   }
+}
 
 // ─── Settings helpers ────────────────────────────────────────────
 
