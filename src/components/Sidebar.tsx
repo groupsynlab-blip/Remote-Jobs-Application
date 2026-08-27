@@ -13,6 +13,7 @@ const navItems = [
   { href: "/templates", label: "Templates", icon: "📝" },
   { href: "/verify", label: "Verifier", icon: "🔍" },
   { href: "/scraper", label: "Scraper", icon: "🕷️" },
+  { href: "/whatsapp", label: "WA Filter", icon: "📱" },
   { href: "/history", label: "History", icon: "📋" },
   { href: "/landing-pages", label: "Landing Pages", icon: "📄" },
   { href: "/warmup", label: "Warmup", icon: "🔥" },
