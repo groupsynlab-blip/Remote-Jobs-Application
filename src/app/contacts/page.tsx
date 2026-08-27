@@ -55,6 +55,8 @@ export default function ContactsPage() {
   const [existingListId, setExistingListId] = useState<string>("");
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<HTMLDivElement>(null);
@@ -167,9 +169,33 @@ export default function ContactsPage() {
     e.target.value = "";
   };
 
-  const handlePasteImport = () => {
-    if (!pasteText.trim()) { setError("Please paste some data first"); return; }
-    processCsv(pasteText, "Pasted Data");
+  const handlePasteImport = async () => {
+    if (!pasteText.trim()) { setUploadResult("Error: Please paste some data first"); return; }
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "import_csv",
+          contacts: pastePreview,
+          list_name: listName || `Paste Import ${new Date().toLocaleDateString()}`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUploadResult(`✅ Imported ${data.imported} contacts into list "${data.listName}"`);
+        setPasteText("");
+        setListName("");
+        loadData();
+      } else {
+        setUploadResult(`Error: ${data.error}`);
+      }
+    } catch (err: any) {
+      setUploadResult(`Error: ${err.message}`);
+    }
+    setUploading(false);
   };
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); };
@@ -293,9 +319,9 @@ export default function ContactsPage() {
           <button
             className="btn btn-primary"
             onClick={handlePasteImport}
-            disabled={!pasteText.trim() || loading}
+            disabled={!pasteText.trim() || uploading}
           >
-            {loading ? "⏳ Importing..." : `📥 Import ${pastePreview.length > 0 ? pastePreview.length + " contacts" : ""}`}
+            {uploading ? "⏳ Importing..." : `📥 Import ${pastePreview.length > 0 ? pastePreview.length + " contacts" : ""}`}
           </button>
           {uploadResult && (
             <span style={{
