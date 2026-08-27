@@ -72,6 +72,7 @@ export default function CampaignDetailPage() {
           { label: "Sent ✅", value: statusCounts.sent || 0, color: "#10b981", bg: "rgba(34,197,94,0.08)" },
           { label: "Failed ❌", value: statusCounts.failed || 0, color: "#ef4444", bg: "rgba(239,68,68,0.08)" },
           { label: "Queued 📧", value: statusCounts.queued || 0, color: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
+          { label: "Opened 👁️", value: stats.opened || 0, color: "#8b5cf6", bg: "rgba(139,92,246,0.08)" },
         ].map((card) => (
           <div key={card.label} style={{ padding: "0.75rem", borderRadius: "0.5rem", background: card.bg, textAlign: "center" }}>
             <div style={{ fontSize: "1.25rem", fontWeight: 700, color: card.color }}>{card.value}</div>
@@ -181,6 +182,11 @@ export default function CampaignDetailPage() {
                   }}>
                     {log.status === "sent" ? "✅ Sent" : log.status === "failed" ? "❌ Failed" : log.status === "queued" ? "📧 Queued" : log.status}
                   </span>
+                  {log.open_count > 0 && (
+                    <span style={{ marginLeft: "0.25rem", fontSize: "0.7rem", color: "#8b5cf6" }}>
+                      👁️ {log.open_count}x
+                    </span>
+                  )}
                   {log.error_message && (
                     <div style={{ fontSize: "0.6rem", color: "var(--danger)", marginTop: "0.125rem", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {log.error_message}

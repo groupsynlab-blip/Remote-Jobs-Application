@@ -121,8 +121,8 @@ export async function GET(
                 trackingId
               );
               await transporter.sendMail(mailOptions);
-              db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ? WHERE id = ?")
-                .run(smtpConfig.id, emailLog.id);
+              db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ? WHERE id = ?")
+                .run(smtpConfig.id, trackingId, emailLog.id);
               totalSent++;
               send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'sent', server: smtpConfig.name });
             } catch (error: any) {
