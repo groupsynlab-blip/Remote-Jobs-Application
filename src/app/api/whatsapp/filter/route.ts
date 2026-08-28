@@ -2,12 +2,33 @@ import { NextRequest } from 'next/server';
 
 let activeClient: any = null;
 let isChecking = false;
+let pauseRequested = false;
+let resumeResolve: (() => void) | null = null;
+const BATCH_SIZE = 50;
+const MIN_DELAY = 5000; // 5 seconds
+const MAX_DELAY = 10000; // 10 seconds
 
-// POST — Start a filter session
+// POST — Start filter session or resume from batch pause
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { numbers } = body;
+  const { action, numbers } = body;
 
+  // Resume from batch pause
+  if (action === 'resume') {
+    if (!pauseRequested || !resumeResolve) {
+      return new Response(JSON.stringify({ error: 'No paused filter session to resume' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    resumeResolve();
+    return new Response(JSON.stringify({ success: true, message: 'Resumed' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Start new filter session
   if (!numbers || !Array.isArray(numbers) || numbers.length === 0) {
     return new Response(JSON.stringify({ error: 'Provide an array of phone numbers' }), {
       status: 400,
@@ -122,8 +143,32 @@ export async function GET(request: NextRequest) {
               send({ type: 'progress', current: i + 1, total: numbers.length, number: rawNumber, status: 'error', reason: checkError.message, onWhatsApp, notOnWhatsApp, invalid });
             }
 
-            // 1-2s delay between checks
-            await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+            // 5-10s delay between checks (safety)
+            await new Promise(resolve => setTimeout(resolve, MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY)));
+
+            // Safety limiter: pause every BATCH_SIZE numbers
+            if ((i + 1) % BATCH_SIZE === 0 && i + 1 < numbers.length) {
+              const batchNum = Math.floor((i + 1) / BATCH_SIZE);
+              send({
+                type: 'batch_pause',
+                message: `Batch ${batchNum} complete (${i + 1}/${numbers.length}). Pausing for safety.`,
+                current: i + 1,
+                total: numbers.length,
+                onWhatsApp,
+                notOnWhatsApp,
+                invalid,
+              });
+
+              // Wait for resume signal
+              await new Promise<void>(resolve => {
+                resumeResolve = resolve;
+                pauseRequested = true;
+              });
+              pauseRequested = false;
+              resumeResolve = null;
+
+              send({ type: 'status', message: `Resuming... (${i + 1}/${numbers.length} checked)` });
+            }
 
             if ((i + 1) % 10 === 0) {
               send({ type: 'heartbeat', current: i + 1, total: numbers.length, onWhatsApp, notOnWhatsApp, invalid });

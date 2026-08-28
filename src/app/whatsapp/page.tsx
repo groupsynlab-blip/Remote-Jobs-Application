@@ -18,6 +18,8 @@ export default function WhatsAppFilterPage() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [stats, setStats] = useState({ onWhatsApp: 0, notOnWhatsApp: 0, invalid: 0 });
   const [filterTab, setFilterTab] = useState<'all' | 'on_whatsapp' | 'not_on_whatsapp'>('all');
+  const [isPaused, setIsPaused] = useState(false);
+  const [pauseMessage, setPauseMessage] = useState('');
   const eventSourceRef = useRef<EventSource | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -114,6 +116,18 @@ export default function WhatsAppFilterPage() {
             });
             break;
 
+          case 'batch_pause':
+            setProgress({ current: data.current, total: data.total });
+            setStats({
+              onWhatsApp: data.onWhatsApp,
+              notOnWhatsApp: data.notOnWhatsApp,
+              invalid: data.invalid,
+            });
+            setPauseMessage(data.message);
+            setIsPaused(true);
+            setStatus(`⏸️ ${data.message}`);
+            break;
+
           case 'done':
             setProgress({ current: data.total, total: data.total });
             setStats({
@@ -126,6 +140,7 @@ export default function WhatsAppFilterPage() {
             }
             setStatus(`✅ Done! Found ${data.onWhatsApp} on WhatsApp, ${data.notOnWhatsApp} not on WhatsApp, ${data.invalid} invalid`);
             setIsRunning(false);
+            setIsPaused(false);
             es.close();
             eventSourceRef.current = null;
             break;
@@ -147,6 +162,26 @@ export default function WhatsAppFilterPage() {
     };
   };
 
+  const resumeFilter = async () => {
+    try {
+      const res = await fetch('/api/whatsapp/filter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resume' }),
+      });
+      if (res.ok) {
+        setIsPaused(false);
+        setPauseMessage('');
+        setStatus('Resuming...');
+      } else {
+        const data = await res.json();
+        setStatus(`❌ ${data.error}`);
+      }
+    } catch {
+      setStatus('❌ Failed to resume');
+    }
+  };
+
   const stopFilter = async () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -156,6 +191,7 @@ export default function WhatsAppFilterPage() {
       await fetch('/api/whatsapp/filter', { method: 'DELETE' });
     } catch {}
     setIsRunning(false);
+    setIsPaused(false);
     setStatus('Stopped by user');
   };
 
@@ -210,7 +246,8 @@ export default function WhatsAppFilterPage() {
         <ol style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.8 }}>
           <li>Paste your phone numbers below (one per line, or comma-separated)</li>
           <li>Click &quot;Start Filter&quot; and scan the QR code with your WhatsApp app</li>
-          <li>Each number is checked in batches with delays to avoid rate limiting</li>
+          <li>Each number is checked with a 5-10 second delay to avoid rate limiting</li>
+          <li>Filter pauses every 50 numbers for safety — click Resume to continue</li>
           <li>View results in real-time and export to CSV when done</li>
         </ol>
         <div style={{
@@ -222,7 +259,7 @@ export default function WhatsAppFilterPage() {
           fontSize: '0.8rem',
           color: '#eab308',
         }}>
-          ⚠️ Keep your WhatsApp connected during the process. Do not close the browser tab.
+          ⚠️ Keep your WhatsApp connected during the process. The filter pauses every 50 numbers for safety — you must click Resume to continue. Checking thousands of numbers increases ban risk.
         </div>
       </div>
 
@@ -292,21 +329,40 @@ export default function WhatsAppFilterPage() {
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {isRunning ? (
-              <button
-                onClick={stopFilter}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  background: '#ef4444',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                }}
-              >
-                ⏹ Stop
-              </button>
+              <>
+                {isPaused && (
+                  <button
+                    onClick={resumeFilter}
+                    style={{
+                      padding: '0.75rem 1.5rem',
+                      background: '#22c55e',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    ▶ Resume ({progress.current}/{progress.total})
+                  </button>
+                )}
+                <button
+                  onClick={stopFilter}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: '#ef4444',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  ⏹ Stop
+                </button>
+              </>
             ) : (
               <button
                 onClick={startFilter}
@@ -415,6 +471,47 @@ export default function WhatsAppFilterPage() {
             transition: 'width 0.3s ease',
             borderRadius: '8px',
           }} />
+        </div>
+      )}
+
+      {/* Batch Pause Banner */}
+      {isPaused && (
+        <div style={{
+          background: 'rgba(234, 179, 8, 0.1)',
+          border: '2px solid #eab308',
+          borderRadius: '12px',
+          padding: '1.5rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+        }}>
+          <span style={{ fontSize: '2rem' }}>⏸️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '1rem', fontWeight: 700, color: '#eab308', marginBottom: '0.25rem' }}>
+              Safety Pause — Batch Complete
+            </div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              {pauseMessage}. Reviewed {progress.current} of {progress.total} numbers.
+              Click Resume to continue with the next batch of 50.
+            </div>
+          </div>
+          <button
+            onClick={resumeFilter}
+            style={{
+              padding: '0.75rem 2rem',
+              background: '#22c55e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '1rem',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ▶ Resume
+          </button>
         </div>
       )}
 

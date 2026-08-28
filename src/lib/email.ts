@@ -342,6 +342,16 @@ export function buildMailOptions(
   const renderedSubject = renderTemplate(subject, vars);
   let htmlBody = renderTemplate(templateBody, vars);
 
+  // If template is plain text (no HTML tags), convert to HTML
+  if (!/<[a-z][\s\S]*>/i.test(htmlBody)) {
+    htmlBody = htmlBody
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+    htmlBody = `<div style="font-family: Verdana, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">${htmlBody}</div>`;
+  }
+
   // Wrap all links with click tracking
   if (ctx.enableTracking && trackingId) {
     htmlBody = wrapLinksWithTracking(htmlBody, trackingId, ctx.baseUrl);
