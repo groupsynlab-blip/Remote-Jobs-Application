@@ -446,6 +446,16 @@ function initializeDb(db: Database.Database) {
       'Hi {{name}},\nReceivable agent role at Synlab Group - fully remote, commission-based, flexible hours.\nInterested? Happy to share details.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493');
   }
 
+  // Migration: replace old HTML templates with plain text versions
+  const tpl1 = db.prepare('SELECT body FROM email_templates WHERE id = ?').get('tpl1') as { body: string } | undefined;
+  if (tpl1 && tpl1.body.includes('<div')) {
+    db.prepare(`UPDATE email_templates SET body = 'Hi {{name}},\nI came across your profile and was impressed by your background. We are expanding our remote receivable operations at Synlab Group and I think you could be a great fit.\nIt is a commission-based role where you earn a percentage of each transaction processed. Fully remote, work on your own schedule.\nWould you be open to a quick chat about it?\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493' WHERE id = 'tpl1'`).run();
+    db.prepare(`UPDATE email_templates SET body = 'Hi {{name}},\nHope this finds you well. I am reaching out because Synlab Group is looking for detail-oriented people to join our receivable team remotely.\nThe compensation is entirely performance-based - you keep a percentage of every transaction you process. No ceiling on what you can earn.\nIf you have experience in finance or accounts receivable, I would love to tell you more about it.\nThanks for your time.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493' WHERE id = 'tpl2'`).run();
+    db.prepare(`UPDATE email_templates SET body = 'Hi {{name}},\nJust a quick note - we are building out our receivable team at Synlab Group and looking for people who want to earn based on their performance.\nThe role is fully remote, commission-based, and you set your own hours. Some of our agents are doing really well with it.\nHappy to share more details if you are curious.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493' WHERE id = 'tpl3'`).run();
+    db.prepare(`UPDATE email_templates SET body = 'Hi {{name}},\nI was told you might be interested in remote earning opportunities. We have an opening at Synlab Group for receivable agents and it seems like it could be a good match for someone with your skills.\nIt is entirely commission-based - you earn from every transaction you process. A lot of flexibility in how and when you work.\nLet me know if you want to hear more about it.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493' WHERE id = 'tpl4'`).run();
+    db.prepare(`UPDATE email_templates SET body = 'Hi {{name}},\nReceivable agent role at Synlab Group - fully remote, commission-based, flexible hours.\nInterested? Happy to share details.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493' WHERE id = 'tpl5'`).run();
+  }
+
   // Migrate campaigns table to add selected_smtp_ids column
   try {
     const campCols = db.prepare("PRAGMA table_info(campaigns)").all() as { name: string }[];
