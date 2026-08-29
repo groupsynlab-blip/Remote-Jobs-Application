@@ -466,6 +466,34 @@ function initializeDb(db: Database.Database) {
     console.error("[DB] campaigns migration error:", e.message);
   }
 
+  // Fix campaigns table PRIMARY KEY if missing (causes foreign key errors with email_logs)
+  try {
+    const pkCheck = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='campaigns'").get() as { sql: string } | undefined;
+    if (pkCheck && !pkCheck.sql.includes('PRIMARY KEY')) {
+      console.log('[DB] Rebuilding campaigns table with PRIMARY KEY...');
+      db.exec(`
+        CREATE TABLE campaigns_fixed (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, template_id TEXT NOT NULL,
+          contact_list_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+          tags TEXT DEFAULT '', scheduled_at TEXT, delay_seconds INTEGER NOT NULL DEFAULT 2,
+          reply_to TEXT, subject_rotation TEXT, template_rotation TEXT, selected_smtp_ids TEXT,
+          enable_tracking INTEGER NOT NULL DEFAULT 1, enable_unsubscribe INTEGER NOT NULL DEFAULT 1,
+          total_count INTEGER NOT NULL DEFAULT 0, sent_count INTEGER NOT NULL DEFAULT 0,
+          failed_count INTEGER NOT NULL DEFAULT 0, open_count INTEGER NOT NULL DEFAULT 0,
+          unsubscribe_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), sent_at TEXT
+        );
+        INSERT INTO campaigns_fixed (id, name, template_id, contact_list_id, status, scheduled_at, delay_seconds, reply_to, subject_rotation, enable_tracking, enable_unsubscribe, total_count, sent_count, failed_count, open_count, unsubscribe_count, created_at, sent_at, template_rotation, selected_smtp_ids)
+        SELECT id, name, template_id, contact_list_id, COALESCE(status,'draft'), scheduled_at, COALESCE(delay_seconds,2), reply_to, subject_rotation, COALESCE(enable_tracking,1), COALESCE(enable_unsubscribe,1), COALESCE(total_count,0), COALESCE(sent_count,0), COALESCE(failed_count,0), COALESCE(open_count,0), COALESCE(unsubscribe_count,0), COALESCE(created_at,datetime('now')), sent_at, template_rotation, selected_smtp_ids
+        FROM campaigns;
+        DROP TABLE campaigns;
+        ALTER TABLE campaigns_fixed RENAME TO campaigns;
+      `);
+      console.log('[DB] campaigns table rebuilt with PRIMARY KEY');
+    }
+  } catch (e: any) {
+    console.error("[DB] campaigns PK migration error:", e.message);
+  }
+
   // Migrate email_bounces to add error_message and bounced_at columns
   try {
     const bounceCols = db.prepare("PRAGMA table_info(email_bounces)").all() as { name: string }[];
