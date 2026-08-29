@@ -109,21 +109,15 @@ export async function PATCH(
     if (body.action === 'complete') {
       db.prepare('UPDATE campaigns SET status = ? WHERE id = ?').run(body.status || 'sent', id);
       return NextResponse.json({ success: true });
-    }
-
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-
-    // General campaign edit
+    }    // General campaign edit
     const fields: string[] = [];
     const values: any[] = [];
     if (body.name !== undefined) { fields.push('name = ?'); values.push(body.name); }
     if (body.template_id !== undefined) { fields.push('template_id = ?'); values.push(body.template_id); }
     if (body.contact_list_id !== undefined) {
-      fields.push('contact_list_id = ?');
-      values.push(body.contact_list_id);
+      fields.push('contact_list_id = ?'); values.push(body.contact_list_id);
       const countResult = db.prepare('SELECT COUNT(*) as count FROM contact_list_members WHERE contact_list_id = ?').get(body.contact_list_id) as { count: number };
-      fields.push('total_count = ?');
-      values.push(countResult.count);
+      fields.push('total_count = ?'); values.push(countResult.count);
     }
     if (body.delay_seconds !== undefined) { fields.push('delay_seconds = ?'); values.push(body.delay_seconds); }
     if (body.reply_to !== undefined) { fields.push('reply_to = ?'); values.push(body.reply_to); }
@@ -142,6 +136,8 @@ export async function PATCH(
     values.push(id);
     db.prepare(`UPDATE campaigns SET ${fields.join(', ')} WHERE id = ?`).run(...values);
     return NextResponse.json({ success: true });
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update campaign' }, { status: 500 });
   }

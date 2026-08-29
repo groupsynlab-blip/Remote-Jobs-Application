@@ -245,6 +245,9 @@ export default function ComposePage() {
         const active = campaigns.find((c: any) => c.status === "sending" || c.status === "paused");
         if (active) {
           setActiveCampaign(active);
+        } else {
+          // No active campaign — make sure isPaused doesn't block the Send button
+          setIsPaused(false);
         }
       }).catch(() => {});
     });
@@ -1656,12 +1659,12 @@ export default function ComposePage() {
       {!sendLoopActive && (
         <div style={{ display: "flex", gap: "1rem" }}>
           <button className="btn btn-primary" onClick={() => handleSend("send")}
-            disabled={sending || isPaused} style={{ opacity: sending || isPaused ? 0.6 : 1 }}>
+            disabled={sending} style={{ opacity: sending ? 0.6 : 1 }}>
             {sending ? "⏳ Sending..." : "🚀 Send Now"}
           </button>
           {form.scheduled_at && (
             <button className="btn btn-secondary" onClick={() => handleSend("schedule")}
-              disabled={sending || isPaused} style={{ opacity: sending || isPaused ? 0.6 : 1 }}>
+              disabled={sending} style={{ opacity: sending ? 0.6 : 1 }}>
               📅 Schedule
             </button>
           )}
