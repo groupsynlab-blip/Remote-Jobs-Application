@@ -43,10 +43,10 @@ export async function POST(request: NextRequest) {
       const company = columnMapping.company != null ? (row[columnMapping.company] || '').trim() : '';
       const title = columnMapping.title != null ? (row[columnMapping.title] || '').trim() : '';
       return { email, name, phone, company, title };
-    }).filter(c => c.email && c.email.includes('@') && c.email.includes('.'));
+    }).filter((c: { email: string; name: string; phone: string; company: string; title: string }) => c.email && c.email.includes('@') && c.email.includes('.'));
 
     const seen = new Set<string>();
-    const uniqueContacts = contacts.filter(c => {
+    const uniqueContacts = contacts.filter((c: { email: string; name: string; phone: string; company: string; title: string }) => {
       if (seen.has(c.email)) return false;
       seen.add(c.email);
       return true;
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     const existingMap = new Map<string, any>();
     for (let i = 0; i < uniqueContacts.length; i += 500) {
-      const chunk = uniqueContacts.slice(i, i + 500).map(c => c.email);
+      const chunk = uniqueContacts.slice(i, i + 500).map((c: { email: string }) => c.email);
       const placeholders = chunk.map(() => '?').join(',');
       const existing = db.prepare(
         `SELECT id, email, name, phone, company, title FROM contacts WHERE email IN (${placeholders})`

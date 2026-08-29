@@ -27,6 +27,7 @@ interface Campaign {
   log_sent: number;
   log_failed: number;
   log_queued: number;
+  selected_smtp_ids: string;
 }
 
 interface Template { id: string; name: string; subject: string; }

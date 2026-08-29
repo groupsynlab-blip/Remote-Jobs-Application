@@ -70,6 +70,15 @@ export async function GET(
     GROUP BY status
   `).all(id);
 
+  // Get unique opens
+  const openStats = db.prepare(`
+    SELECT COUNT(DISTINCT tracking_id) as unique_opens
+    FROM email_opens
+    WHERE tracking_id IN (
+      SELECT tracking_id FROM email_logs WHERE campaign_id = ? AND status = 'sent' AND tracking_id IS NOT NULL
+    )
+  `).get(id) as { unique_opens: number } || { unique_opens: 0 };
+
   return Response.json({
     campaign: {
       id: campaign.id,
@@ -84,5 +93,6 @@ export async function GET(
     logs,
     smtp_stats: smtpStats,
     status_breakdown: statusBreakdown,
+    stats: { opened: openStats.unique_opens },
   });
 }
