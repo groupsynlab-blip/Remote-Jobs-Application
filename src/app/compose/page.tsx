@@ -156,6 +156,8 @@ export default function ComposePage() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const autoPausedRef = useRef(false);
   const currentCampaignIdRef = useRef<string | null>(null);
+  const isCompleteRef = useRef(false);
+  const sendLoopActiveRef = useRef(false);
 
   // ─── Speed metrics ─────────────────────────────────────────
   const sendStartTimeRef = useRef<number>(0);
@@ -191,7 +193,8 @@ export default function ComposePage() {
 
     const handleOffline = () => {
       setIsOnline(false);
-      if (sendLoopActive) {
+      // Use ref to avoid stale closure — always reflects current sending state
+      if (sendLoopActiveRef.current) {
         console.log("[Compose] Internet lost — auto-pausing");
         autoPausedRef.current = true;
         setAutoPaused(true);
@@ -207,7 +210,7 @@ export default function ComposePage() {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [sendLoopActive]);
+  }, []);
 
   // Cleanup SSE on unmount
   useEffect(() => {
@@ -330,8 +333,10 @@ export default function ComposePage() {
     // On resume, keep baseline refs as-is (they were set by the previous run)
 
     setIsComplete(false);
+    isCompleteRef.current = false;
     setTotalEmails(total);
     setSendLoopActive(true);
+    sendLoopActiveRef.current = true;
     setIsPaused(false);
 
     // Reset per-stream counters (these are new emails in this stream)
@@ -474,6 +479,7 @@ export default function ComposePage() {
 
           case "done": {
             setIsComplete(true);
+            isCompleteRef.current = true;
             const doneSent = baselineSentRef.current + data.sent;
             const doneFailed = baselineFailedRef.current + data.failed;
             setDisplaySent(doneSent);
@@ -509,8 +515,8 @@ export default function ComposePage() {
     };
 
     es.onerror = () => {
-      // SSE connection lost — could be server restart or network issue
-      if (!isComplete) {
+      // Use ref to avoid stale closure — isComplete may have changed since startStreaming was called
+      if (!isCompleteRef.current) {
         setSendProgress("⚠️ Connection lost. Checking status...");
         // Try to reconnect (EventSource auto-reconnects, but let's also check manually)
         setTimeout(async () => {
@@ -526,11 +532,13 @@ export default function ComposePage() {
               setSendProgress("⏸ Sending paused. Click Resume to continue.");
             } else if (data.done) {
               setIsComplete(true);
+              isCompleteRef.current = true;
               setSendProgress("✅ All emails sent successfully!");
             } else {
-              // Reconnect SSE
+              // Reconnect SSE — use ref for fresh campaign ID
               setSendProgress("🔄 Reconnecting...");
-              startStreaming(campaignId, total);
+              const freshId = currentCampaignIdRef.current || campaignId;
+              startStreaming(freshId, total);
             }
           } catch {
             setSendProgress("❌ Connection lost. Please check your network.");
