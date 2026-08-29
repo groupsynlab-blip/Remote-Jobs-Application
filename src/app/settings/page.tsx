@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "about">("general");
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
+  const [showSmtpForm, setShowSmtpForm] = useState(false);
   const [smtpForm, setSmtpForm] = useState({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true });
 
   useEffect(() => {
@@ -60,17 +61,43 @@ export default function SettingsPage() {
     alert("Tracking settings saved!");
   };
 
-  const fetchSmtpConfigs = () => {
-    fetch("/api/smtp").then(r => r.json()).then(d => setSmtpConfigs(Array.isArray(d) ? d : d.configs || []));
+  const fetchSmtpConfigs = async () => {
+    try {
+      const r = await fetch("/api/smtp");
+      if (!r.ok) return;
+      const d = await r.json();
+      setSmtpConfigs(Array.isArray(d) ? d : d.configs || []);
+    } catch (e) {
+      console.error("Failed to fetch SMTP configs:", e);
+    }
   };
 
+  const [saving, setSaving] = useState(false);
+
   const saveSmtp = async () => {
-    const method = editingSmtp ? "PUT" : "POST";
-    const body = editingSmtp ? { ...smtpForm, id: editingSmtp.id } : smtpForm;
-    await fetch("/api/smtp", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    setEditingSmtp(null);
-    setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true });
-    fetchSmtpConfigs();
+    if (!smtpForm.name || !smtpForm.user || !smtpForm.pass) {
+      alert("Please fill in Name, Username, and Password");
+      return;
+    }
+    setSaving(true);
+    try {
+      const method = editingSmtp ? "PUT" : "POST";
+      const body = editingSmtp ? { ...smtpForm, id: editingSmtp.id } : smtpForm;
+      const res = await fetch("/api/smtp", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert("Failed to save SMTP: " + (err.error || res.statusText));
+        return;
+      }
+      setEditingSmtp(null);
+      setShowSmtpForm(false);
+      setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true });
+      await fetchSmtpConfigs();
+    } catch (e: any) {
+      alert("Error saving SMTP: " + e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const deleteSmtp = async (id: string) => {
@@ -86,6 +113,7 @@ export default function SettingsPage() {
 
   const editSmtp = (config: any) => {
     setEditingSmtp(config);
+    setShowSmtpForm(true);
     setSmtpForm({ name: config.name || "", host: config.host || "smtp.gmail.com", port: config.port || 587, user: config.user || "", pass: config.pass || "", from_name: config.from_name || "", from_email: config.from_email || "", daily_limit: config.daily_limit || 500, hourly_limit: config.hourly_limit || 100, secure: Boolean(config.secure), enabled: Boolean(config.enabled) });
   };
 
@@ -207,11 +235,11 @@ export default function SettingsPage() {
         <div className="card" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ fontWeight: 600 }}>SMTP Configurations</h3>
-            <button className="btn btn-primary" onClick={() => { setEditingSmtp(null); setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true }); }}>+ Add SMTP</button>
+            <button className="btn btn-primary" onClick={() => { setEditingSmtp(null); setShowSmtpForm(true); setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true }); }}>+ Add SMTP</button>
           </div>
 
           {/* SMTP Form */}
-          {editingSmtp !== null || document.querySelector('[data-show-smtp-form]') ? (
+          {showSmtpForm ? (
             <div style={{ padding: "1rem", borderRadius: "0.75rem", border: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
               <h4 style={{ fontWeight: 600, marginBottom: "0.75rem", fontSize: "0.875rem" }}>{editingSmtp ? "Edit SMTP" : "Add SMTP"}</h4>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
@@ -226,8 +254,8 @@ export default function SettingsPage() {
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Hourly Limit</label><input className="input" type="number" value={smtpForm.hourly_limit} onChange={e => setSmtpForm({...smtpForm, hourly_limit: Number(e.target.value)})} /></div>
               </div>
               <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-                <button className="btn btn-primary" onClick={saveSmtp}>{editingSmtp ? "Update" : "Save"}</button>
-                <button className="btn btn-secondary" onClick={() => setEditingSmtp(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={saveSmtp} disabled={saving}>{saving ? "Saving..." : editingSmtp ? "Update" : "Save"}</button>
+                <button className="btn btn-secondary" onClick={() => { setEditingSmtp(null); setShowSmtpForm(false); }}>Cancel</button>
               </div>
             </div>
           ) : null}
