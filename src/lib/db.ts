@@ -464,10 +464,10 @@ function initializeDb(db: Database.Database) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       'lp-remote-jobs',
-      'Remote Job Applications',
+      'Payments Representative Job Application',
       'remote-jobs',
-      'Apply for Remote Jobs',
-      'Join our remote team! Fill out the form below to apply.',
+      'Payments Representative',
+      'We are hiring remote Payments Representatives. Fill out the form below to apply.',
       JSON.stringify(['Full Name', 'Email Address', 'Phone Number', 'Address', 'Years of Experience', 'Availability', 'Portfolio URL', 'Message']),
       'Thank you for your application! We will review it and get back to you soon.',
       1
