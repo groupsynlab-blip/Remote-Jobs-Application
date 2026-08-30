@@ -153,6 +153,14 @@ export default function ComposePage() {
   const [activeCampaign, setActiveCampaign] = useState<any>(null);
   const [showCampaignDetail, setShowCampaignDetail] = useState(false);
 
+  // ─── In-progress edit state (template/subject changes while paused) ──
+  const [editingInCampaign, setEditingInCampaign] = useState(false);
+  const [editTemplateId, setEditTemplateId] = useState("");
+  const [editUseRotation, setEditUseRotation] = useState(false);
+  const [editSelectedTemplateIds, setEditSelectedTemplateIds] = useState<string[]>([]);
+  const [editUseSubjectRotation, setEditUseSubjectRotation] = useState(false);
+  const [editSubjects, setEditSubjects] = useState<string[]>([""]);
+
   const eventSourceRef = useRef<EventSource | null>(null);
   const autoPausedRef = useRef(false);
   const currentCampaignIdRef = useRef<string | null>(null);
@@ -327,6 +335,81 @@ export default function ComposePage() {
     setDisplayRemaining(campaign.total_count - (campaign.sent_count || 0) - (campaign.failed_count || 0));
     setActiveCampaign(null);
     startStreaming(campaign.id, campaign.total_count, true);
+  };
+
+  // ─── Open the in-progress campaign editor (template/subject changes) ──
+  const openCampaignEditor = async () => {
+    const campaignId = currentCampaignIdRef.current;
+    if (!campaignId) return;
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`);
+      const data = await res.json();
+      const c = data.campaign;
+      if (!c) return;
+
+      setEditTemplateId(c.template_id || "");
+
+      // Template rotation
+      let rotIds: string[] = [];
+      if (c.template_rotation) {
+        try { rotIds = JSON.parse(c.template_rotation); } catch { rotIds = []; }
+      }
+      setEditUseRotation(rotIds.length > 1);
+      setEditSelectedTemplateIds(rotIds.length > 1 ? rotIds : (c.template_id ? [c.template_id] : []));
+
+      // Subject rotation
+      let subs: string[] = [];
+      if (c.subject_rotation) {
+        try { subs = JSON.parse(c.subject_rotation); } catch { subs = []; }
+      }
+      setEditUseSubjectRotation(subs.length > 1);
+      setEditSubjects(subs.length > 1 ? subs : [""]);
+
+      setEditingInCampaign(true);
+    } catch (err) {
+      console.error("Failed to load campaign for editing:", err);
+    }
+  };
+
+  // ─── Save in-progress campaign edits (template/subject changes) ──
+  const saveCampaignEdits = async () => {
+    const campaignId = currentCampaignIdRef.current;
+    if (!campaignId) return;
+
+    try {
+      const body: any = {};
+
+      // Template
+      if (editTemplateId) body.template_id = editTemplateId;
+
+      // Template rotation
+      if (editUseRotation && editSelectedTemplateIds.length > 1) {
+        body.template_rotation = editSelectedTemplateIds;
+      } else {
+        body.template_rotation = null;
+      }
+
+      // Subject rotation
+      if (editUseSubjectRotation) {
+        const activeSubs = editSubjects.filter((s) => s.trim() !== "");
+        body.subject_rotation = activeSubs.length > 1 ? activeSubs : null;
+      } else {
+        body.subject_rotation = null;
+      }
+
+      const res = await fetch(`/api/campaigns/${campaignId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      setEditingInCampaign(false);
+      setSendProgress("✅ Template changes saved — will apply on the next batch after Resume.");
+    } catch (err: any) {
+      alert("Failed to save: " + err.message);
+    }
   };
 
   // ─── SSE Streaming Send ───────────────────────────────────────
@@ -824,6 +907,162 @@ export default function ComposePage() {
             style={{ fontSize: "0.8rem", padding: "0.5rem 1rem", whiteSpace: "nowrap" }}>
             ▶ Resume
           </button>
+        </div>
+      )}
+
+      {/* ─── In-Progress Campaign Editor (Template/Subject changes while paused) ── */}
+      {isPaused && sendLoopActive && !editingInCampaign && (
+        <div className="card" style={{
+          marginBottom: "1rem",
+          background: "rgba(99, 102, 241, 0.05)",
+          border: "1px solid rgba(99, 102, 241, 0.2)",
+          padding: "0.875rem 1rem",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ fontSize: "1rem" }}>✏️</span>
+              <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>Edit Campaign Settings</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>— change template, subject rotation, or template rotation before resuming</span>
+            </div>
+            <button className="btn btn-secondary" onClick={openCampaignEditor}
+              style={{ fontSize: "0.75rem", padding: "0.4rem 0.75rem" }}>
+              ✏️ Edit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isPaused && sendLoopActive && editingInCampaign && (
+        <div className="card" style={{ marginBottom: "1rem", padding: "1rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+            <span style={{ fontSize: "1rem" }}>✏️</span>
+            <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>Editing Campaign — Changes apply on next batch</span>
+          </div>
+
+          {/* Template selection */}
+          <div style={{ marginBottom: "1rem" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, marginBottom: "0.375rem" }}>
+              Email Template
+            </label>
+            <select className="input" value={editTemplateId}
+              onChange={(e) => setEditTemplateId(e.target.value)}>
+              <option value="">Select a template...</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            {editTemplateId && templates.find((t) => t.id === editTemplateId) && (
+              <TemplatePreview template={templates.find((t) => t.id === editTemplateId)} />
+            )}
+          </div>
+
+          {/* Template Rotation */}
+          <div style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <label style={{ fontSize: "0.8rem", fontWeight: 500 }}>🔄 Template Rotation</label>
+              <button type="button" onClick={() => {
+                setEditUseRotation(!editUseRotation);
+                if (!editUseRotation && editTemplateId) {
+                  setEditSelectedTemplateIds([editTemplateId]);
+                }
+              }}
+                style={{
+                  padding: "0.2rem 0.6rem", borderRadius: "1rem", border: "none",
+                  fontSize: "0.7rem", fontWeight: 600, cursor: "pointer",
+                  background: editUseRotation ? "var(--accent)" : "var(--border)",
+                  color: editUseRotation ? "#fff" : "var(--muted)", transition: "all 0.2s",
+                }}>
+                {editUseRotation ? "ON" : "OFF"}
+              </button>
+            </div>
+            {editUseRotation && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", padding: "0.6rem", borderRadius: "0.5rem", border: "1px solid var(--border)", background: "rgba(99, 102, 241, 0.03)" }}>
+                {templates.map((t) => {
+                  const sel = editSelectedTemplateIds.includes(t.id);
+                  return (
+                    <label key={t.id} style={{
+                      display: "flex", alignItems: "center", gap: "0.5rem",
+                      padding: "0.4rem 0.6rem", borderRadius: "0.4rem",
+                      border: `1px solid ${sel ? "rgba(99, 102, 241, 0.3)" : "var(--border)"}`,
+                      background: sel ? "rgba(99, 102, 241, 0.06)" : "transparent",
+                      cursor: "pointer", fontSize: "0.75rem",
+                    }}>
+                      <input type="checkbox" checked={sel}
+                        onChange={() => {
+                          setEditSelectedTemplateIds(prev =>
+                            sel ? prev.filter(id => id !== t.id) : [...prev, t.id]
+                          );
+                        }} style={{ accentColor: "var(--accent)" }} />
+                      <span style={{ fontWeight: 500 }}>{t.name}</span>
+                      <span style={{ color: "var(--muted)", fontSize: "0.65rem", marginLeft: "auto" }}>
+                        {t.subject?.substring(0, 40)}{t.subject?.length > 40 ? "..." : ""}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Subject Rotation */}
+          <div style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <label style={{ fontSize: "0.8rem", fontWeight: 500 }}>Subject Line Rotation</label>
+              <button type="button" onClick={() => setEditUseSubjectRotation(!editUseSubjectRotation)}
+                style={{
+                  padding: "0.2rem 0.6rem", borderRadius: "1rem", border: "none",
+                  fontSize: "0.7rem", fontWeight: 600, cursor: "pointer",
+                  background: editUseSubjectRotation ? "var(--accent)" : "var(--border)",
+                  color: editUseSubjectRotation ? "#fff" : "var(--muted)", transition: "all 0.2s",
+                }}>
+                {editUseSubjectRotation ? "ON" : "OFF"}
+              </button>
+            </div>
+            {editUseSubjectRotation && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                {editSubjects.map((sub, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--accent)", minWidth: "1.25rem" }}>
+                      {idx + 1}
+                    </span>
+                    <input className="input" placeholder={`Subject variation ${idx + 1}`}
+                      value={sub} onChange={(e) => {
+                        const updated = [...editSubjects];
+                        updated[idx] = e.target.value;
+                        setEditSubjects(updated);
+                      }} style={{ flex: 1, fontSize: "0.8rem" }} />
+                    {editSubjects.length > 1 && (
+                      <button type="button" onClick={() => setEditSubjects(editSubjects.filter((_, i) => i !== idx))}
+                        style={{
+                          width: "1.5rem", height: "1.5rem", borderRadius: "0.25rem", border: "none",
+                          background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)", cursor: "pointer",
+                          fontSize: "0.85rem", display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>×</button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={() => setEditSubjects([...editSubjects, ""])}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "0.375rem",
+                    padding: "0.4rem 0.6rem", borderRadius: "0.4rem",
+                    border: "1px dashed var(--border)", background: "transparent",
+                    color: "var(--accent)", cursor: "pointer", fontSize: "0.75rem",
+                  }}>+ Add Subject Variation</button>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button className="btn btn-primary" onClick={saveCampaignEdits}
+              style={{ fontSize: "0.8rem", padding: "0.5rem 1rem" }}>
+              💾 Save Changes
+            </button>
+            <button className="btn btn-secondary" onClick={() => setEditingInCampaign(false)}
+              style={{ fontSize: "0.8rem", padding: "0.5rem 1rem" }}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
