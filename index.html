@@ -92,13 +92,7 @@
 
         <div id="result"></div>
 
-        <!-- This form submits to FormSubmit.co via real POST -->
-        <form id="applyForm" action="https://formsubmit.co/synlabgroup7@gmail.com" method="POST">
-            <input type="hidden" name="_subject" value="New Job Application">
-            <input type="hidden" name="_captcha" value="false">
-            <input type="hidden" name="_template" value="table">
-            <input type="hidden" name="_next" value="https://groupsynlab-blip.github.io/Remote-Jobs-Application/thankyou.html">
-            <input type="text" name="_honey" style="position:absolute;left:-9999px" tabindex="-1" autocomplete="off">
+        <form id="applyForm">
 
             <div class="row">
                 <div class="form-group">
@@ -153,7 +147,53 @@
             <button type="submit" class="btn" id="submitBtn">🚀 Submit Application</button>
         </form>
 
-        <div class="footer">Synlab Group — Remote Opportunities</div>
+        <div class="footer">Powered by Synlab Group</div>
     </div>
+    <script>
+        const API_URL = 'https://bulk-emailer-production.up.railway.app';
+        const SLUG = 'remote-jobs';
+        const form = document.getElementById('applyForm');
+        const result = document.getElementById('result');
+        const submitBtn = document.getElementById('submitBtn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting...';
+            result.innerHTML = '';
+
+            const data = {};
+            const fd = new FormData(form);
+            fd.forEach((v, k) => { if (!k.startsWith('_')) data[k] = v; });
+
+            try {
+                const res = await fetch(API_URL + '/api/landing-pages/public/' + SLUG, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: data['Full Name'] || '',
+                        email: data['Email Address'] || '',
+                        phone: data['Phone Number'] || '',
+                        address: data['Address'] || '',
+                        experience: data['Years of Experience'] || '',
+                        availability: data['Availability'] || '',
+                        portfolio: data['Portfolio URL'] || '',
+                        message: data['Message'] || '',
+                    }),
+                });
+                const json = await res.json();
+                if (res.ok) {
+                    result.innerHTML = '<div class="success">✅ Application submitted successfully! We will review your application and get back to you soon.</div>';
+                    form.reset();
+                } else {
+                    result.innerHTML = '<div style="padding:1rem;border-radius:0.5rem;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;text-align:center;font-size:0.9rem;">❌ ' + (json.error || 'Submission failed. Please try again.') + '</div>';
+                }
+            } catch (err) {
+                result.innerHTML = '<div style="padding:1rem;border-radius:0.5rem;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;text-align:center;font-size:0.9rem;">❌ Network error. Please check your connection and try again.</div>';
+            }
+            submitBtn.disabled = false;
+            submitBtn.textContent = '\u{1F680} Submit Application';
+        });
+    </script>
 </body>
 </html>
