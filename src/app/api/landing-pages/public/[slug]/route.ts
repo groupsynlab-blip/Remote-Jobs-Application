@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { sendWebhookNotifications } from '@/lib/webhooks';
+import { createTransporter, getEnabledSmtpConfigs } from '@/lib/email';
 
 /** GET /api/landing-pages/public/[slug] — get landing page data for rendering */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
