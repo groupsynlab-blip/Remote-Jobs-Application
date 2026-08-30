@@ -226,6 +226,25 @@ export default function ComposePage() {
     }
   }, [logEntries]);
 
+  // ─── Poll active campaign status (sync with Campaigns page) ──
+  useEffect(() => {
+    if (sendLoopActive) return; // Don't poll during streaming — SSE handles it
+    const interval = setInterval(() => {
+      fetch("/api/campaigns")
+        .then((r) => r.json())
+        .then((campaigns: any[]) => {
+          const active = campaigns.find((c: any) => c.status === "sending" || c.status === "paused");
+          if (active) {
+            setActiveCampaign(active);
+          } else {
+            setActiveCampaign(null);
+          }
+        })
+        .catch(() => {});
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [sendLoopActive]);
+
   // ─── Fetch data ───────────────────────────────────────────────
   useEffect(() => {
     Promise.all([

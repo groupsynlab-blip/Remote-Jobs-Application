@@ -86,8 +86,11 @@ export default function CampaignsPage() {
       reply_to: c.reply_to || "",
       enable_tracking: c.enable_tracking,
       enable_unsubscribe: c.enable_unsubscribe,
-      selected_smtp_ids: c.selected_smtp_ids ? JSON.parse(c.selected_smtp_ids) : smtpConfigs.map((s: any) => s.id),    });
+      selected_smtp_ids: c.selected_smtp_ids ? JSON.parse(c.selected_smtp_ids) : smtpConfigs.map((s: any) => s.id),
+    });
   };
+
+  const isActive = (c: Campaign) => c.status === 'sending' || c.status === 'paused';
 
   const saveEdit = async () => {
     if (!editingId) return;
@@ -110,6 +113,32 @@ export default function CampaignsPage() {
     await fetch(`/api/campaigns/${id}`, { method: "DELETE" });
     setConfirmDelete(null);
     loadData();
+  };
+
+  const pauseCampaign = async (id: string) => {
+    try {
+      await fetch(`/api/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pause" }),
+      });
+      loadData();
+    } catch (e: any) {
+      alert("Failed to pause: " + e.message);
+    }
+  };
+
+  const resumeCampaign = async (id: string) => {
+    try {
+      await fetch(`/api/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume" }),
+      });
+      loadData();
+    } catch (e: any) {
+      alert("Failed to resume: " + e.message);
+    }
   };
 
   const filteredCampaigns = campaigns.filter((c) => {
@@ -178,28 +207,38 @@ export default function CampaignsPage() {
                   const progress = c.total_count > 0 ? Math.round(((c.log_sent || 0) / c.total_count) * 100) : 0;
 
                   if (editingId === c.id) {
+                    const active = isActive(c);
                     return (
                       <tr key={c.id} style={{ background: "rgba(99,102,241,0.05)" }}>
                         <td colSpan={7} style={{ padding: "1rem" }}>
                           <div style={{ display: "grid", gap: "0.75rem", maxWidth: "600px" }}>
-                            <div>
-                              <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>Campaign Name</label>
-                              <input className="input" value={editForm.name || ""} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
-                            </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                              <div>
-                                <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>Template</label>
-                                <select className="input" value={editForm.template_id || ""} onChange={(e) => setEditForm({ ...editForm, template_id: e.target.value })}>
-                                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                                </select>
+                            {active && (
+                              <div style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", fontSize: "0.75rem", color: "#3b82f6" }}>
+                                ✏️ Editing active campaign — changes take effect on the next batch of emails
                               </div>
+                            )}
+                            {!active && (
                               <div>
-                                <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>Contact List</label>
-                                <select className="input" value={editForm.contact_list_id || ""} onChange={(e) => setEditForm({ ...editForm, contact_list_id: e.target.value })}>
-                                  {lists.map(l => <option key={l.id} value={l.id}>{l.name} ({l.member_count})</option>)}
-                                </select>
+                                <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>Campaign Name</label>
+                                <input className="input" value={editForm.name || ""} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
                               </div>
-                            </div>
+                            )}
+                            {!active && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                                <div>
+                                  <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>Template</label>
+                                  <select className="input" value={editForm.template_id || ""} onChange={(e) => setEditForm({ ...editForm, template_id: e.target.value })}>
+                                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>Contact List</label>
+                                  <select className="input" value={editForm.contact_list_id || ""} onChange={(e) => setEditForm({ ...editForm, contact_list_id: e.target.value })}>
+                                    {lists.map(l => <option key={l.id} value={l.id}>{l.name} ({l.member_count})</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                            )}
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                               <div>
                                 <label style={{ fontSize: "0.75rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>Delay (sec)</label>
@@ -281,6 +320,12 @@ export default function CampaignsPage() {
                       <td>
                         <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
                           <Link href={`/campaigns/${c.id}`} className="btn btn-secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", textDecoration: "none" }}>📊 Details</Link>
+                          {c.status === 'sending' && (
+                            <button className="btn btn-secondary" onClick={() => pauseCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(234,179,8,0.5)", color: "rgb(234,179,8)" }} >⏸ Pause</button>
+                          )}
+                          {c.status === 'paused' && (
+                            <button className="btn btn-primary" onClick={() => resumeCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >▶ Resume</button>
+                          )}
                           <button className="btn btn-secondary" onClick={() => startEdit(c)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >✏️ Edit</button>
                           {confirmDelete === c.id ? (
                             <>

@@ -109,7 +109,33 @@ export async function PATCH(
     if (body.action === 'complete') {
       db.prepare('UPDATE campaigns SET status = ? WHERE id = ?').run(body.status || 'sent', id);
       return NextResponse.json({ success: true });
-    }    // General campaign edit
+    }
+
+    if (body.action === 'pause') {
+      const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id) as any;
+      if (!campaign) {
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+      }
+      if (campaign.status !== 'sending' && campaign.status !== 'paused') {
+        return NextResponse.json({ error: 'Campaign is not active' }, { status: 400 });
+      }
+      db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ?").run(id);
+      return NextResponse.json({ success: true, status: 'paused' });
+    }
+
+    if (body.action === 'resume') {
+      const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id) as any;
+      if (!campaign) {
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+      }
+      if (campaign.status !== 'paused') {
+        return NextResponse.json({ error: 'Campaign is not paused' }, { status: 400 });
+      }
+      db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(id);
+      return NextResponse.json({ success: true, status: 'sending' });
+    }
+
+    // General campaign edit
     const fields: string[] = [];
     const values: any[] = [];
     if (body.name !== undefined) { fields.push('name = ?'); values.push(body.name); }

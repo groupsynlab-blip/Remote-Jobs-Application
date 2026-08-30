@@ -86,9 +86,20 @@ export async function GET(
         let smtpIndex = 0;
         let totalSent = 0;
         let totalFailed = 0;
+        let emailsSinceStatusCheck = 0;
         const delayMs = (campaign.delay_seconds || 2) * 1000;
 
         while (!closed) {
+          // Check if campaign was paused externally (e.g. from Campaigns page)
+          if (emailsSinceStatusCheck >= 5) {
+            const currentStatus = db.prepare('SELECT status FROM campaigns WHERE id = ?').get(id) as { status: string } | undefined;
+            if (currentStatus && currentStatus.status === 'paused') {
+              send({ type: 'paused', sent: totalSent, failed: totalFailed, remaining: (db.prepare("SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'").get(id) as any).count });
+              break;
+            }
+            emailsSinceStatusCheck = 0;
+          }
+
           const queuedEmails = db.prepare(
             "SELECT * FROM email_logs WHERE campaign_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 10"
           ).all(id) as any[];
@@ -97,6 +108,7 @@ export async function GET(
 
           for (const emailLog of queuedEmails) {
             if (closed) break;
+            emailsSinceStatusCheck++;
 
             const smtpConfig = smtpConfigs[smtpIndex % smtpConfigs.length];
             smtpIndex++;
