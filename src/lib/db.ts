@@ -456,6 +456,25 @@ function initializeDb(db: Database.Database) {
     db.prepare(`UPDATE email_templates SET body = 'Hi {{name}},\nReceivable agent role at Synlab Group - fully remote, commission-based, flexible hours.\nInterested? Happy to share details.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493' WHERE id = 'tpl5'`).run();
   }
 
+  // Seed landing page for remote jobs applications
+  const lpCount = db.prepare('SELECT COUNT(*) as count FROM landing_pages').get() as { count: number };
+  if (lpCount.count === 0) {
+    db.prepare(`
+      INSERT INTO landing_pages (id, name, slug, title, description, form_fields, success_message, enabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'lp-remote-jobs',
+      'Remote Job Applications',
+      'remote-jobs',
+      'Apply for Remote Jobs',
+      'Join our remote team! Fill out the form below to apply.',
+      JSON.stringify(['Full Name', 'Email Address', 'Phone Number', 'Address', 'Years of Experience', 'Availability', 'Portfolio URL', 'Message']),
+      'Thank you for your application! We will review it and get back to you soon.',
+      1
+    );
+    console.log('[DB] Seeded landing page: remote-jobs');
+  }
+
   // Migrate campaigns table to add selected_smtp_ids column
   try {
     const campCols = db.prepare("PRAGMA table_info(campaigns)").all() as { name: string }[];
