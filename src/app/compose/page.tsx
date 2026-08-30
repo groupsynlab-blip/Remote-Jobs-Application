@@ -379,7 +379,7 @@ export default function ComposePage() {
             // Show total across all runs
             setDisplaySent(prevSent);
             setDisplayFailed(prevFailed);
-            setDisplayRemaining(data.remaining || (totalAll - prevSent - prevFailed));
+            setDisplayRemaining(data.remaining ?? (totalAll - prevSent - prevFailed));
             const msg = isResume
               ? `📤 Resumed — ${prevSent} already sent, ${data.remaining || 0} remaining`
               : `📤 Sending ${totalAll} emails — live progress below`;
@@ -391,15 +391,15 @@ export default function ComposePage() {
             // Update refs immediately (these are counts for THIS stream only)
             sentRef.current = data.sent;
             failedRef.current = data.failed;
-            skippedRef.current = data.skipped;
+            skippedRef.current = data.skipped || 0;
 
             // Display = baseline (from prior runs) + this stream's counts
             const totalSent = baselineSentRef.current + data.sent;
             const totalFailed = baselineFailedRef.current + data.failed;
             setDisplaySent(totalSent);
             setDisplayFailed(totalFailed);
-            setDisplaySkipped(data.skipped);
-            setDisplayRemaining(data.remaining);
+            setDisplaySkipped(data.skipped || 0);
+            setDisplayRemaining(data.remaining || 0);
             setLastEmail(data.email);
             setLastStatus(data.status);
             setLastError(data.error || "");
@@ -421,7 +421,7 @@ export default function ComposePage() {
 
             // Calculate speed metrics
             const now = Date.now();
-            const processed = data.sent + data.failed + data.skipped;
+            const processed = data.sent + data.failed + (data.skipped || 0);
             const elapsed = (now - sendStartTimeRef.current) / 1000; // seconds
             setElapsedTime(Math.round(elapsed));
 
@@ -453,10 +453,10 @@ export default function ComposePage() {
             }
 
             // Progress message
-            const grandTotal = totalSent + totalFailed + data.skipped + data.remaining;
-            const pct = grandTotal > 0 ? Math.round(((totalSent + totalFailed + data.skipped) / grandTotal) * 100) : 0;
+            const grandTotal = totalSent + totalFailed + (data.skipped || 0) + (data.remaining || 0);
+            const pct = grandTotal > 0 ? Math.round(((totalSent + totalFailed + (data.skipped || 0)) / grandTotal) * 100) : 0;
             setSendProgress(
-              `📤 ${totalSent + totalFailed + data.skipped} / ${grandTotal} processed (${pct}%)` +
+              `📤 ${totalSent + totalFailed + (data.skipped || 0)} / ${grandTotal} processed (${pct}%)` +
               (data.status === "sent" ? ` — ✉️ Sent to ${data.email}` : "") +
               (data.status === "failed" ? ` — ❌ Failed: ${data.email}` : "") +
               (data.status === "skipped" ? ` — ⏭ Skipped: ${data.email}` : "")
@@ -466,11 +466,11 @@ export default function ComposePage() {
 
           case "paused": {
             setIsPaused(true);
-            const pausedSent = baselineSentRef.current + data.sent;
-            const pausedFailed = baselineFailedRef.current + data.failed;
+            const pausedSent = baselineSentRef.current + (data.sent || 0);
+            const pausedFailed = baselineFailedRef.current + (data.failed || 0);
             setDisplaySent(pausedSent);
             setDisplayFailed(pausedFailed);
-            setDisplayRemaining(data.remaining);
+            setDisplayRemaining(data.remaining || 0);
             setSendProgress(
               `⏸ Paused — ${pausedSent} sent, ${pausedFailed} failed, ${data.remaining} remaining`
             );
@@ -480,8 +480,8 @@ export default function ComposePage() {
           case "done": {
             setIsComplete(true);
             isCompleteRef.current = true;
-            const doneSent = baselineSentRef.current + data.sent;
-            const doneFailed = baselineFailedRef.current + data.failed;
+            const doneSent = baselineSentRef.current + (data.sent || 0);
+            const doneFailed = baselineFailedRef.current + (data.failed || 0);
             setDisplaySent(doneSent);
             setDisplayFailed(doneFailed);
             setDisplayRemaining(data.remaining || 0);
