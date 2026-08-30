@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
+import { getAllSmtpRateUsage, getEnabledSmtpConfigs } from '@/lib/email';
 
 export async function GET(
   request: NextRequest,
@@ -76,6 +77,21 @@ export async function GET(
           campaign_name: campaign.name,
         });
 
+        // Send initial SMTP quota snapshot
+        {
+          const allConfigs = getEnabledSmtpConfigs();
+          const usage = getAllSmtpRateUsage();
+          const smtpQuotaData = allConfigs.map((c: any) => {
+            const u = usage[c.id] || { hourly_used: 0, daily_used: 0 };
+            return {
+              id: c.id, name: c.name, enabled: c.enabled,
+              hourly_limit: c.hourly_limit || 0, daily_limit: c.daily_limit || 0,
+              hourly_used: u.hourly_used, daily_used: u.daily_used,
+            };
+          });
+          send({ type: 'smtp_quota', smtps: smtpQuotaData });
+        }
+
         if (totalQueued.count === 0) {
           send({ type: 'done', sent: 0, failed: 0, skipped: 0, total });
           controller.close();
@@ -137,6 +153,20 @@ export async function GET(
                 .run(smtpConfig.id, trackingId, emailLog.id);
               totalSent++;
               send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'sent', server: smtpConfig.name });
+              // Update SMTP quota after each send
+              {
+                const usage = getAllSmtpRateUsage();
+                const allConfigs = getEnabledSmtpConfigs();
+                const smtpQuotaData = allConfigs.map((c: any) => {
+                  const cu = usage[c.id] || { hourly_used: 0, daily_used: 0 };
+                  return {
+                    id: c.id, name: c.name, enabled: c.enabled,
+                    hourly_limit: c.hourly_limit || 0, daily_limit: c.daily_limit || 0,
+                    hourly_used: cu.hourly_used, daily_used: cu.daily_used,
+                  };
+                });
+                send({ type: 'smtp_quota', smtps: smtpQuotaData });
+              }
             } catch (error: any) {
               db.prepare("UPDATE email_logs SET status = 'failed', error_message = ?, smtp_config_id = ? WHERE id = ?")
                 .run(error.message, smtpConfig.id, emailLog.id);
