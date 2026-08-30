@@ -255,32 +255,30 @@ export default function ComposePage() {
 
   // ─── Fetch data ───────────────────────────────────────────────
   useEffect(() => {
-    Promise.all([
-      fetch("/api/templates").then((r) => r.json()),
-      fetch("/api/contacts").then((r) => r.json()),
-      fetch("/api/scheduler").then((r) => r.json()),
-      fetch("/api/smtp").then((r) => r.json()),
-    ]).then(([t, c, s, smtpData]) => {
-      setTemplates(t);
-      setLists(c.lists || []);
+    // Fetch each API independently so one failure doesn't kill all others
+    fetch("/api/templates").then((r) => r.json()).then((t) => setTemplates(Array.isArray(t) ? t : [])).catch(() => {});
+    fetch("/api/contacts").then((r) => r.json()).then((c) => setLists(c.lists || [])).catch(() => {});
+    fetch("/api/scheduler").then((r) => r.json()).then((s) => {
       setSchedulerStatus(s);
+      setIsPaused(s.paused || false);
+      setIsOnline(s.online !== false);
+    }).catch(() => {});
+    fetch("/api/smtp").then((r) => r.json()).then((smtpData) => {
       const enabledSmtps = (Array.isArray(smtpData) ? smtpData : (smtpData.smtps || [])).filter((s: any) => s.enabled);
       setSmtpConfigs(enabledSmtps);
       setSelectedSmtpIds(enabledSmtps.map((s: any) => s.id));
-      setIsPaused(s.paused || false);
-      setIsOnline(s.online !== false);
+    }).catch(() => {});
 
-      // Detect campaigns in "sending" status
-      fetch("/api/campaigns").then((r) => r.json()).then((campaigns: any[]) => {
-        const active = campaigns.find((c: any) => c.status === "sending" || c.status === "paused");
-        if (active) {
-          setActiveCampaign(active);
-        } else {
-          // No active campaign — make sure isPaused doesn't block the Send button
-          setIsPaused(false);
+    // Detect campaigns in "sending" status
+    fetch("/api/campaigns").then((r) => r.json()).then((campaigns: any[]) => {
+      const active = campaigns.find((c: any) => c.status === "sending" || c.status === "paused");
+      if (active) {
+        setActiveCampaign(active);
+      } else {
+        // No active campaign — make sure isPaused doesn't block the Send button
+        setIsPaused(false);
         }
-      }).catch(() => {});
-    });
+    }).catch(() => {});
   }, []);
 
   const addSubject = () => setSubjects([...subjects, ""]);
