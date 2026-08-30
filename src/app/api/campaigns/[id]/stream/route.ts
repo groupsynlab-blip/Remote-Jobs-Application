@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
-import { getAllSmtpRateUsage, getEnabledSmtpConfigs } from '@/lib/email';
+import { getAllSmtpRateUsage, getEnabledSmtpConfigs, recordSmtpSend } from '@/lib/email';
 
 export async function GET(
   request: NextRequest,
@@ -151,6 +151,7 @@ export async function GET(
               await transporter.sendMail(mailOptions);
               db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ? WHERE id = ?")
                 .run(smtpConfig.id, trackingId, emailLog.id);
+              recordSmtpSend(smtpConfig.id);
               totalSent++;
               send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'sent', server: smtpConfig.name });
               // Update SMTP quota after each send
