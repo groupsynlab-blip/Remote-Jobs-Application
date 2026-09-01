@@ -9,12 +9,16 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const trackingId = searchParams.get('id');
 
+  console.log('[Track/Open] Pixel hit! trackingId:', trackingId);
   if (trackingId) {
     try {
       const db = getDb();
-      // Only record if we haven't already recorded this open from this IP+UA combo (deduplicate)
       const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
       const userAgent = request.headers.get('user-agent') || 'unknown';
+
+      // Check if this tracking_id exists in email_logs
+      const logEntry = db.prepare('SELECT id FROM email_logs WHERE tracking_id = ?').get(trackingId);
+      console.log('[Track/Open] logEntry found:', !!logEntry);
 
       const existing = db.prepare(
         'SELECT id FROM email_opens WHERE tracking_id = ? AND user_agent = ? LIMIT 1'
@@ -24,11 +28,15 @@ export async function GET(request: NextRequest) {
         db.prepare(
           'INSERT INTO email_opens (tracking_id, user_agent, ip_address) VALUES (?, ?, ?)'
         ).run(trackingId, userAgent, ip);
+        console.log('[Track/Open] Open recorded for:', trackingId);
+      } else {
+        console.log('[Track/Open] Duplicate open, skipped for:', trackingId);
       }
-    } catch (err) {
-      // Silently ignore tracking errors — don't break the email experience
-      console.error('[Track/Open] Error:', err);
+    } catch (err: any) {
+      console.error('[Track/Open] Error:', err.message || err);
     }
+  } else {
+    console.log('[Track/Open] No trackingId provided!');
   }
 
   // Return a 1x1 transparent GIF

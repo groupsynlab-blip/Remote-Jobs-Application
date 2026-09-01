@@ -521,6 +521,14 @@ function initializeDb(db: Database.Database) {
     }
   } catch {}
 
+  // Migration: ensure tracking_id column exists on email_logs
+  try {
+    const logCols = db.prepare("PRAGMA table_info(email_logs)").all() as { name: string }[];
+    if (!logCols.some(c => c.name === 'tracking_id')) {
+      db.exec(`ALTER TABLE email_logs ADD COLUMN tracking_id TEXT`);
+    }
+  } catch {}
+
   // Migrate email_bounces to add error_message and bounced_at columns
   try {
     const bounceCols = db.prepare("PRAGMA table_info(email_bounces)").all() as { name: string }[];
