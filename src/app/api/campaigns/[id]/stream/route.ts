@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
-import { getAllSmtpRateUsage, getEnabledSmtpConfigs, recordSmtpSend } from '@/lib/email';
+import { getAllSmtpRateUsage, getEnabledSmtpConfigs, recordSmtpSend, isSmtpRateLimited } from '@/lib/email';
 
 export async function GET(
   request: NextRequest,
@@ -131,6 +131,15 @@ export async function GET(
           if (emailsSinceStatusCheck >= 5) {
             const currentStatus = db.prepare('SELECT status FROM campaigns WHERE id = ?').get(id) as { status: string } | undefined;
             if (currentStatus && currentStatus.status === 'paused') {
+              // Before pausing, check if any SMTP has recovered capacity
+              const anyAvailable = smtpConfigs.some((c) => !isSmtpRateLimited(c).limited);
+              if (anyAvailable) {
+                // Limits have reset — auto-resume
+                db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(id);
+                send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: '', status: 'sent', server: 'Auto-resumed: SMTP limits have reset' });
+                emailsSinceStatusCheck = 0;
+                continue;
+              }
               send({ type: 'paused', sent: totalSent, failed: totalFailed, remaining: (db.prepare("SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'").get(id) as any).count });
               break;
             }
@@ -147,79 +156,122 @@ export async function GET(
             if (closed) break;
             emailsSinceStatusCheck++;
 
-            const smtpConfig = smtpConfigs[smtpIndex % smtpConfigs.length];
-            smtpIndex++;
-
-            try {
-              const { createTransporter, buildMailOptions } = await import('@/lib/email');
-              const transporter = createTransporter(smtpConfig);
-              const trackingId = uuidv4();
-              // Rotate subject if multiple subjects configured
-              let emailSubject = campaign.template_subject;
-              if (subjectRotation.length > 0) {
-                emailSubject = subjectRotation[subjectIndex % subjectRotation.length];
-                subjectIndex++;
+            // Find next available SMTP that isn't rate-limited
+            let smtpConfig: any = null;
+            let allLimited = true;
+            for (let attempt = 0; attempt < smtpConfigs.length; attempt++) {
+              const candidate = smtpConfigs[(smtpIndex + attempt) % smtpConfigs.length];
+              const rateCheck = isSmtpRateLimited(candidate);
+              if (!rateCheck.limited) {
+                smtpConfig = candidate;
+                smtpIndex = (smtpIndex + attempt + 1) % smtpConfigs.length;
+                allLimited = false;
+                break;
               }
+            }
 
-              // Rotate template body if multiple templates configured
-              let emailBody = campaign.template_body;
-              if (rotationTemplates.length > 0) {
-                const rotTpl = rotationTemplates[templateIndex % rotationTemplates.length];
-                emailBody = rotTpl.body;
-                // Use this template's subject if no subject rotation
-                if (subjectRotation.length === 0) {
-                  emailSubject = rotTpl.subject;
+            // All SMTPs at limit — auto-pause and leave emails queued for retry
+            if (allLimited) {
+              db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ?").run(id);
+              const remainingCount = (db.prepare("SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'").get(id) as any).count;
+              send({ type: 'paused', sent: totalSent, failed: totalFailed, remaining: remainingCount,
+                message: 'All SMTP accounts hit their sending limits. Campaign auto-paused. It will auto-resume when limits reset.' });
+              break;
+            }
+
+            // Try sending with this SMTP, retry with next on failure
+            const { createTransporter, buildMailOptions } = await import('@/lib/email');
+            let emailSent = false;
+            let lastError = '';
+            const triedSmtps = new Set<string>();
+            let retrySmtpIndex = smtpIndex - 1; // Start from the SMTP we already selected
+
+            for (let retryAttempt = 0; retryAttempt < smtpConfigs.length && !emailSent; retryAttempt++) {
+              const retrySmtp = smtpConfigs[(retrySmtpIndex + retryAttempt) % smtpConfigs.length];
+              if (triedSmtps.has(retrySmtp.id)) continue;
+              triedSmtps.add(retrySmtp.id);
+
+              // Skip rate-limited SMTPs on retry
+              if (retryAttempt > 0 && isSmtpRateLimited(retrySmtp).limited) continue;
+
+              try {
+                const transporter = createTransporter(retrySmtp);
+                const trackingId = uuidv4();
+                // Rotate subject if multiple subjects configured
+                let emailSubject = campaign.template_subject;
+                if (subjectRotation.length > 0) {
+                  emailSubject = subjectRotation[subjectIndex % subjectRotation.length];
+                  subjectIndex++;
                 }
-                templateIndex++;
-              }
 
-              // Replace {{name}} placeholder
-              const contactName = emailLog.contact_name || '';
-              if (contactName) {
-                emailSubject = emailSubject.replace(/\{\{\s*name\s*\}\}/gi, contactName);
-                emailBody = emailBody.replace(/\{\{\s*name\s*\}\}/gi, contactName);
-              }
+                // Rotate template body if multiple templates configured
+                let emailBody = campaign.template_body;
+                if (rotationTemplates.length > 0) {
+                  const rotTpl = rotationTemplates[templateIndex % rotationTemplates.length];
+                  emailBody = rotTpl.body;
+                  if (subjectRotation.length === 0) {
+                    emailSubject = rotTpl.subject;
+                  }
+                  templateIndex++;
+                }
 
-              const { mailOptions } = buildMailOptions(
+                // Replace {{name}} placeholder
+                const contactName = emailLog.contact_name || '';
+                if (contactName) {
+                  emailSubject = emailSubject.replace(/\{\{\s*name\s*\}\}/gi, contactName);
+                  emailBody = emailBody.replace(/\{\{\s*name\s*\}\}/gi, contactName);
+                }
+
+                const { mailOptions } = buildMailOptions(
+                  {
+                    campaignId: id,
+                    baseUrl: '',
+                    replyTo: campaign.reply_to,
+                    enableTracking: campaign.enable_tracking === 1,
+                    enableUnsubscribe: campaign.enable_unsubscribe === 1,
+                  },
+                  retrySmtp,
+                  emailSubject,
+                  emailBody,
+                  emailLog.contact_name || '',
+                  emailLog.contact_email,
+                  trackingId
+                );
+                await transporter.sendMail(mailOptions);
+                db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ?, subject_used = ? WHERE id = ?")
+                  .run(retrySmtp.id, trackingId, emailSubject, emailLog.id);
+                recordSmtpSend(retrySmtp.id);
+                totalSent++;
+                emailSent = true;
+                send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'sent', server: retrySmtp.name });
+                // Update SMTP quota after each send
                 {
-                  campaignId: id,
-                  baseUrl: '',
-                  replyTo: campaign.reply_to,
-                  enableTracking: campaign.enable_tracking === 1,
-                  enableUnsubscribe: campaign.enable_unsubscribe === 1,
-                },
-                smtpConfig,
-                emailSubject,
-                emailBody,
-                emailLog.contact_name || '',
-                emailLog.contact_email,
-                trackingId
-              );
-              await transporter.sendMail(mailOptions);
-              db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ?, subject_used = ? WHERE id = ?")
-                .run(smtpConfig.id, trackingId, emailSubject, emailLog.id);
-              recordSmtpSend(smtpConfig.id);
-              totalSent++;
-              send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'sent', server: smtpConfig.name });
-              // Update SMTP quota after each send
-              {
-                const usage = getAllSmtpRateUsage();
-                const allConfigs = getEnabledSmtpConfigs();
-                const smtpQuotaData = allConfigs.map((c: any) => {
-                  const cu = usage[c.id] || { hourly_used: 0, daily_used: 0 };
-                  return {
-                    id: c.id, name: c.name, enabled: c.enabled,
-                    hourly_limit: c.hourly_limit || 0, daily_limit: c.daily_limit || 0,
-                    hourly_used: cu.hourly_used, daily_used: cu.daily_used,
-                  };
-                });
-                send({ type: 'smtp_quota', smtps: smtpQuotaData });
+                  const usage = getAllSmtpRateUsage();
+                  const allConfigs = getEnabledSmtpConfigs();
+                  const smtpQuotaData = allConfigs.map((c: any) => {
+                    const cu = usage[c.id] || { hourly_used: 0, daily_used: 0 };
+                    return {
+                      id: c.id, name: c.name, enabled: c.enabled,
+                      hourly_limit: c.hourly_limit || 0, daily_limit: c.daily_limit || 0,
+                      hourly_used: cu.hourly_used, daily_used: cu.daily_used,
+                    };
+                  });
+                  send({ type: 'smtp_quota', smtps: smtpQuotaData });
+                }
+              } catch (error: any) {
+                lastError = error.message;
+                if (retryAttempt < smtpConfigs.length - 1) {
+                  send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'retrying', error: `${retrySmtp.name} failed, trying next SMTP...` });
+                }
               }
-            } catch (error: any) {
-              db.prepare("UPDATE email_logs SET status = 'failed', error_message = ?, smtp_config_id = ? WHERE id = ?")
-                .run(error.message, smtpConfig.id, emailLog.id);
+            }
+
+            // All SMTPs failed for this email — mark as failed
+            if (!emailSent) {
+              db.prepare("UPDATE email_logs SET status = 'failed', error_message = ? WHERE id = ?")
+                .run(lastError || 'All SMTP accounts failed', emailLog.id);
               totalFailed++;
-              send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'failed', error: error.message });
+              send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'failed', error: lastError });
             }
 
             if (!closed && delayMs > 0) {

@@ -29,7 +29,7 @@ export default function CampaignDetailPage() {
     <div style={{ padding: "2rem", textAlign: "center", color: "var(--danger)" }}>Campaign not found</div>
   );
 
-  const { campaign, logs, smtp_stats, status_breakdown } = data;
+  const { campaign, logs, smtp_stats, status_breakdown, stats } = data;
   const filteredLogs = logs.filter((log: any) => {
     if (filter !== "all" && log.status !== filter) return false;
     if (search && !log.contact_email?.toLowerCase().includes(search.toLowerCase()) &&

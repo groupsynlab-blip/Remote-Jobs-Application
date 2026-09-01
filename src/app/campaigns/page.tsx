@@ -141,6 +141,46 @@ export default function CampaignsPage() {
     }
   };
 
+  const retryFailed = async (id: string) => {
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry_failed" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`${data.retried} failed emails queued for retry. Sending will start automatically.`);
+        loadData();
+      } else {
+        alert(data.error || "Failed to retry");
+      }
+    } catch (e: any) {
+      alert("Failed to retry: " + e.message);
+    }
+  };
+
+  const exportFailed = async (id: string) => {
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "export_failed" }),
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `failed-emails-${id}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert("Failed to export: " + e.message);
+    }
+  };
+
   const filteredCampaigns = campaigns.filter((c) => {
     if (filter !== "all" && c.status !== filter) return false;
     if (search) {
@@ -325,6 +365,12 @@ export default function CampaignsPage() {
                           )}
                           {c.status === 'paused' && (
                             <button className="btn btn-primary" onClick={() => resumeCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >▶ Resume</button>
+                          )}
+                          {(c.log_failed || 0) > 0 && (c.status === 'sent' || c.status === 'paused' || c.status === 'completed' || c.status === 'failed') && (
+                            <>
+                              <button className="btn btn-secondary" onClick={() => retryFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(251,191,36,0.5)", color: "rgb(251,191,36)" }} >🔄 Retry Failed ({c.log_failed})</button>
+                              <button className="btn btn-secondary" onClick={() => exportFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(99,102,241,0.5)", color: "rgb(99,102,241)" }} >📥 Export CSV</button>
+                            </>
                           )}
                           <button className="btn btn-secondary" onClick={() => startEdit(c)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >✏️ Edit</button>
                           {confirmDelete === c.id ? (

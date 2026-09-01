@@ -559,7 +559,8 @@ export default function ComposePage() {
               `📤 ${totalSent + totalFailed + (data.skipped || 0)} / ${grandTotal} processed (${pct}%)` +
               (data.status === "sent" ? ` — ✉️ Sent to ${data.email}` : "") +
               (data.status === "failed" ? ` — ❌ Failed: ${data.email}` : "") +
-              (data.status === "skipped" ? ` — ⏭ Skipped: ${data.email}` : "")
+              (data.status === "skipped" ? ` — ⏭ Skipped: ${data.email}` : "") +
+              (data.status === "retrying" ? ` — 🔄 Retrying ${data.email}: ${data.error || ''}` : "")
             );
             break;
           }

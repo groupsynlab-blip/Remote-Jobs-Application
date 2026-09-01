@@ -135,6 +135,36 @@ export async function PATCH(
       return NextResponse.json({ success: true, status: 'sending' });
     }
 
+    if (body.action === 'retry_failed') {
+      const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id) as any;
+      if (!campaign) {
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+      }
+      const result = db.prepare(
+        "UPDATE email_logs SET status = 'queued', error_message = NULL, smtp_config_id = NULL WHERE campaign_id = ? AND status = 'failed'"
+      ).run(id);
+      db.prepare("UPDATE campaigns SET status = 'sending', sent_at = datetime('now') WHERE id = ?").run(id);
+      return NextResponse.json({ success: true, retried: result.changes });
+    }
+
+    if (body.action === 'export_failed') {
+      const failed = db.prepare(
+        "SELECT contact_email, contact_name, error_message, created_at FROM email_logs WHERE campaign_id = ? AND status = 'failed'"
+      ).all(id) as any[];
+
+      const header = 'email,name,error,failed_at\n';
+      const rows = failed.map((r: any) => 
+        `${r.contact_email},${(r.contact_name || '').replace(/,/g, ';')},${(r.error_message || '').replace(/,/g, ';')},${r.created_at}`
+      ).join('\n');
+
+      return new Response(header + rows, {
+        headers: {
+          'Content-Type': 'text/csv',
+          'Content-Disposition': `attachment; filename="failed-emails-${id}.csv"`,
+        },
+      });
+    }
+
     // General campaign edit
     const fields: string[] = [];
     const values: any[] = [];
