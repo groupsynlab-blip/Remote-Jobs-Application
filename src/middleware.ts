@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   '/login',
   '/health',
   '/api/auth',
+  '/api/unsubscribe',
   '/api/landing-pages/public',
   '/landing-pages/public',
   '/api/track/click',
