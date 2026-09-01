@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
+import { getDb, getSetting } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { getAllSmtpRateUsage, getEnabledSmtpConfigs, recordSmtpSend, isSmtpRateLimited } from '@/lib/email';
 
@@ -225,7 +225,7 @@ export async function GET(
                 const { mailOptions } = buildMailOptions(
                   {
                     campaignId: id,
-                    baseUrl: '',
+                    baseUrl: getSetting('app_url') || process.env.APP_URL || '',
                     replyTo: campaign.reply_to,
                     enableTracking: campaign.enable_tracking === 1,
                     enableUnsubscribe: campaign.enable_unsubscribe === 1,

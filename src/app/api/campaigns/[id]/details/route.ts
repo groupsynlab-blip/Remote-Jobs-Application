@@ -37,9 +37,18 @@ export async function GET(
       el.smtp_config_id,
       COALESCE(sc.name, sc.from_email, 'Unknown') as smtp_name,
       sc.host as smtp_host,
-      sc.from_email as smtp_from
+      sc.from_email as smtp_from,
+      COALESCE(open_data.open_count, 0) as open_count,
+      open_data.first_opened_at
     FROM email_logs el
     LEFT JOIN smtp_config sc ON el.smtp_config_id = sc.id
+    LEFT JOIN (
+      SELECT tracking_id,
+        COUNT(*) as open_count,
+        MIN(opened_at) as first_opened_at
+      FROM email_opens
+      GROUP BY tracking_id
+    ) open_data ON el.tracking_id = open_data.tracking_id
     WHERE el.campaign_id = ?
     ORDER BY el.created_at ASC
   `).all(id);
