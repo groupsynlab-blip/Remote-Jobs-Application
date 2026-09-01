@@ -63,6 +63,9 @@ export async function GET(
     });
   }
 
+  // Determine the base URL for tracking pixels and unsubscribe links
+  const baseUrl = getSetting('app_url') || process.env.APP_URL || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+
   const encoder = new TextEncoder();
   let closed = false;
 
@@ -225,7 +228,7 @@ export async function GET(
                 const { mailOptions } = buildMailOptions(
                   {
                     campaignId: id,
-                    baseUrl: getSetting('app_url') || process.env.APP_URL || '',
+                    baseUrl: baseUrl,
                     replyTo: campaign.reply_to,
                     enableTracking: campaign.enable_tracking === 1,
                     enableUnsubscribe: campaign.enable_unsubscribe === 1,

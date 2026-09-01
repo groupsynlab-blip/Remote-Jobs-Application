@@ -513,6 +513,14 @@ function initializeDb(db: Database.Database) {
     console.error("[DB] campaigns PK migration error:", e.message);
   }
 
+  // Seed app_url from environment if not already set
+  try {
+    const existingUrl = db.prepare("SELECT value FROM settings WHERE key = 'app_url'").get() as any;
+    if (!existingUrl && process.env.APP_URL) {
+      db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('app_url', ?)").run(process.env.APP_URL);
+    }
+  } catch {}
+
   // Migrate email_bounces to add error_message and bounced_at columns
   try {
     const bounceCols = db.prepare("PRAGMA table_info(email_bounces)").all() as { name: string }[];
