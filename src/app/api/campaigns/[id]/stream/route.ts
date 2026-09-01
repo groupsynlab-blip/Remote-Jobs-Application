@@ -22,6 +22,25 @@ export async function GET(
     });
   }
 
+  // ─── Parse template/subject rotation from campaign ──────────
+  let subjectRotation: string[] = [];
+  if (campaign.subject_rotation) {
+    try { subjectRotation = JSON.parse(campaign.subject_rotation); } catch {}
+  }
+  let templateRotationIds: string[] = [];
+  if (campaign.template_rotation) {
+    try { templateRotationIds = JSON.parse(campaign.template_rotation); } catch {}
+  }
+
+  // Load all rotation template bodies from DB
+  let rotationTemplates: { id: string; subject: string; body: string }[] = [];
+  if (templateRotationIds.length > 1) {
+    const placeholders = templateRotationIds.map(() => '?').join(',');
+    rotationTemplates = db.prepare(
+      `SELECT id, subject, body FROM email_templates WHERE id IN (${placeholders})`
+    ).all(...templateRotationIds) as any[];
+  }
+
   let smtpConfigs: any[] = [];
   try {
     const { getEnabledSmtpConfigs } = await import('@/lib/email');
@@ -98,8 +117,10 @@ export async function GET(
           return;
         }
 
-        // Simple round-robin sending
+        // Simple round-robin sending with template/subject rotation
         let smtpIndex = 0;
+        let subjectIndex = 0;
+        let templateIndex = 0;
         let totalSent = 0;
         let totalFailed = 0;
         let emailsSinceStatusCheck = 0;
@@ -133,6 +154,32 @@ export async function GET(
               const { createTransporter, buildMailOptions } = await import('@/lib/email');
               const transporter = createTransporter(smtpConfig);
               const trackingId = uuidv4();
+              // Rotate subject if multiple subjects configured
+              let emailSubject = campaign.template_subject;
+              if (subjectRotation.length > 0) {
+                emailSubject = subjectRotation[subjectIndex % subjectRotation.length];
+                subjectIndex++;
+              }
+
+              // Rotate template body if multiple templates configured
+              let emailBody = campaign.template_body;
+              if (rotationTemplates.length > 0) {
+                const rotTpl = rotationTemplates[templateIndex % rotationTemplates.length];
+                emailBody = rotTpl.body;
+                // Use this template's subject if no subject rotation
+                if (subjectRotation.length === 0) {
+                  emailSubject = rotTpl.subject;
+                }
+                templateIndex++;
+              }
+
+              // Replace {{name}} placeholder
+              const contactName = emailLog.contact_name || '';
+              if (contactName) {
+                emailSubject = emailSubject.replace(/\{\{\s*name\s*\}\}/gi, contactName);
+                emailBody = emailBody.replace(/\{\{\s*name\s*\}\}/gi, contactName);
+              }
+
               const { mailOptions } = buildMailOptions(
                 {
                   campaignId: id,
@@ -142,15 +189,15 @@ export async function GET(
                   enableUnsubscribe: campaign.enable_unsubscribe === 1,
                 },
                 smtpConfig,
-                campaign.template_subject,
-                campaign.template_body,
+                emailSubject,
+                emailBody,
                 emailLog.contact_name || '',
                 emailLog.contact_email,
                 trackingId
               );
               await transporter.sendMail(mailOptions);
-              db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ? WHERE id = ?")
-                .run(smtpConfig.id, trackingId, emailLog.id);
+              db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ?, subject_used = ? WHERE id = ?")
+                .run(smtpConfig.id, trackingId, emailSubject, emailLog.id);
               recordSmtpSend(smtpConfig.id);
               totalSent++;
               send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'sent', server: smtpConfig.name });

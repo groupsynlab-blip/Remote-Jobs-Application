@@ -154,6 +154,14 @@ export async function PATCH(
     if (body.enable_tracking !== undefined) { fields.push('enable_tracking = ?'); values.push(body.enable_tracking ? 1 : 0); }
     if (body.enable_unsubscribe !== undefined) { fields.push('enable_unsubscribe = ?'); values.push(body.enable_unsubscribe ? 1 : 0); }
     if (body.status !== undefined) { fields.push('status = ?'); values.push(body.status); }
+    if (body.subject_rotation !== undefined) {
+      fields.push('subject_rotation = ?');
+      values.push(Array.isArray(body.subject_rotation) && body.subject_rotation.length > 0 ? JSON.stringify(body.subject_rotation) : null);
+    }
+    if (body.template_rotation !== undefined) {
+      fields.push('template_rotation = ?');
+      values.push(Array.isArray(body.template_rotation) && body.template_rotation.length > 0 ? JSON.stringify(body.template_rotation) : null);
+    }
 
     if (fields.length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
