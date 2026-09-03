@@ -241,6 +241,7 @@ function initializeDb(db: Database.Database) {
       search_engines TEXT,
       max_results INTEGER NOT NULL DEFAULT 50,
       crawl_depth INTEGER NOT NULL DEFAULT 1,
+      time_frame TEXT NOT NULL DEFAULT 'any',
       total_pages_scraped INTEGER NOT NULL DEFAULT 0,
       total_emails_found INTEGER NOT NULL DEFAULT 0,
       unique_emails INTEGER NOT NULL DEFAULT 0,
