@@ -179,7 +179,7 @@ function extractSearchLinks(html: string, excludeDomains: string[], max: number)
 
 // ═══ Search Engine: DuckDuckGo (HTML lite with cookie flow) ═════════
 
-async function searchDuckDuckGo(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
+async function searchDuckDuckGo(query: string, maxResults: number, _country?: string, _dateFrom?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
@@ -201,7 +201,7 @@ async function searchDuckDuckGo(query: string, maxResults: number, _country?: st
         redirect: 'manual',
       }).then(r => r.headers.getSetCookie?.() || [])).join('; ');
 
-      const formData = `q=${searchQuery}&b=&kl=`;
+      const formData = `q=${searchQuery}&b=&kl=${_dateFrom ? '&df=' + _dateFrom : ''}`;
       const { body } = await fetchUrl(`https://html.duckduckgo.com/html/`, {
         method: 'POST',
         timeoutMs: 15000,
@@ -247,7 +247,7 @@ async function searchDuckDuckGo(query: string, maxResults: number, _country?: st
 
 // ═══ Search Engine: Bing ════════════════════════════════════════════
 
-async function searchBing(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
+async function searchBing(query: string, maxResults: number, _country?: string, _dateFrom?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
@@ -264,7 +264,7 @@ async function searchBing(query: string, maxResults: number, _country?: string):
       }
       const searchQuery = encodeURIComponent(searchQ);
       const { body } = await fetchUrl(
-        `https://www.bing.com/search?q=${searchQuery}&count=50&first=${offset}`,
+        `https://www.bing.com/search?q=${searchQuery}&count=50&first=${offset}${_dateFrom ? '&filters=ex1:"ez5_' + Math.floor(new Date(_dateFrom).getTime() / 1000) + '_"' : ''}`,
         {
           timeoutMs: 15000,
           headers: {
@@ -310,7 +310,7 @@ async function searchBing(query: string, maxResults: number, _country?: string):
 
 // ═══ Search Engine: Brave ═══════════════════════════════════════════
 
-async function searchBrave(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
+async function searchBrave(query: string, maxResults: number, _country?: string, _dateFrom?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
@@ -322,7 +322,7 @@ async function searchBrave(query: string, maxResults: number, _country?: string)
       const offset = page * 20;
       const searchQuery = encodeURIComponent(query);
       const countryParam = _country && _country !== 'us' ? `&country=${_country.toUpperCase()}` : '';
-      const { body } = await fetchUrl(`https://search.brave.com/search?q=${searchQuery}&offset=${offset}${countryParam}`, {
+      const { body } = await fetchUrl(`https://search.brave.com/search?q=${searchQuery}&offset=${offset}${countryParam}${_dateFrom ? '&tf=' + _dateFrom + '..' : ''}`, {
         timeoutMs: 15000,
         headers: {
           'Referer': 'https://search.brave.com/',
@@ -361,7 +361,7 @@ async function searchBrave(query: string, maxResults: number, _country?: string)
 
 // ═══ Search Engine: Google ══════════════════════════════════════════
 
-async function searchGoogle(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
+async function searchGoogle(query: string, maxResults: number, _country?: string, _dateFrom?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
@@ -374,7 +374,7 @@ async function searchGoogle(query: string, maxResults: number, _country?: string
       const countryParam = _country && _country !== 'us' ? `&gl=${_country.toUpperCase()}` : '';
       const searchQuery = encodeURIComponent(query);
       const { body } = await fetchUrl(
-        `https://www.google.com/search?q=${searchQuery}&num=10&start=${start}&hl=en${countryParam}`,
+        `https://www.google.com/search?q=${searchQuery}&num=10&start=${start}&hl=en${countryParam}${_dateFrom ? '&tbs=cdr:1,cd_min:' + new Date(_dateFrom).toLocaleDateString('en-US') + ',cd_max:' + new Date().toLocaleDateString('en-US') : ''}`,
         {
           timeoutMs: 15000,
           headers: {
@@ -415,7 +415,7 @@ async function searchGoogle(query: string, maxResults: number, _country?: string
 
 // ═══ Search Engine: Startpage ══════════════════════════════════════
 
-async function searchStartpage(query: string, maxResults: number, _country?: string): Promise<SearchResult[]> {
+async function searchStartpage(query: string, maxResults: number, _country?: string, _dateFrom?: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
@@ -427,7 +427,7 @@ async function searchStartpage(query: string, maxResults: number, _country?: str
       const countryParam = _country && _country !== 'us' ? `&language=${_country}` : '';
       const searchQuery = encodeURIComponent(query);
       const { body } = await fetchUrl(
-        `https://www.startpage.com/do/dsearch?query=${searchQuery}&cat=web&startat=${startPage}${countryParam}`,
+        `https://www.startpage.com/do/dsearch?query=${searchQuery}&cat=web&startat=${startPage}${countryParam}${_dateFrom ? '&after_date=' + _dateFrom : ''}`,
         {
           timeoutMs: 15000,
           headers: {
@@ -466,13 +466,36 @@ async function searchStartpage(query: string, maxResults: number, _country?: str
   return results;
 }
 
-const SEARCH_ENGINES: Record<SearchEngine, (query: string, max: number, country?: string) => Promise<SearchResult[]>> = {
+const SEARCH_ENGINES: Record<SearchEngine, (query: string, max: number, country?: string, dateFrom?: string) => Promise<SearchResult[]>> = {
   duckduckgo: searchDuckDuckGo,
   bing: searchBing,
   brave: searchBrave,
   google: searchGoogle,
   startpage: searchStartpage,
 };
+
+// ─── Time Frame Helpers ─────────────────────────────────────────
+
+type TimeFrame = 'any' | 'day' | 'week' | 'month' | '3months' | '6months' | 'year' | '2years' | '3years' | '5years';
+
+function timeFrameToDateRange(timeFrame: string | null): string | undefined {
+  if (!timeFrame || timeFrame === 'any') return undefined;
+  const now = new Date();
+  let startDate: Date;
+  switch (timeFrame as TimeFrame) {
+    case 'day':      startDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); break;
+    case 'week':     startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); break;
+    case 'month':    startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); break;
+    case '3months':  startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); break;
+    case '6months':  startDate = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000); break;
+    case 'year':     startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000); break;
+    case '2years':   startDate = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000); break;
+    case '3years':   startDate = new Date(now.getTime() - 3 * 365 * 24 * 60 * 60 * 1000); break;
+    case '5years':   startDate = new Date(now.getTime() - 5 * 365 * 24 * 60 * 60 * 1000); break;
+    default:         return undefined;
+  }
+  return startDate.toISOString().split('T')[0];
+}
 
 // ═══ Website Crawler ════════════════════════════════════════════════
 
@@ -626,6 +649,11 @@ async function processSearchJob(jobId: string, job: ScrapeJob): Promise<void> {
   }
 
   const maxResults = job.max_results || 200;
+  const dateFrom = timeFrameToDateRange(job.time_frame);
+
+  if (dateFrom) {
+    console.log(`[Scraper] Time frame filter: results from ${dateFrom} onwards`);
+  }
 
   const allFoundEmails = new Map<string, { url: string; title: string | null; engine: string }>();
   let totalPagesScraped = 0;
@@ -644,7 +672,7 @@ async function processSearchJob(jobId: string, job: ScrapeJob): Promise<void> {
 
       try {
         const engine = SEARCH_ENGINES[engineName];
-        const searchResults = await engine(query, maxResults, country);
+        const searchResults = await engine(query, maxResults, country, dateFrom);
         totalPagesScraped += searchResults.length;
 
         // Visit each search result — up to 3 at a time to avoid blocking

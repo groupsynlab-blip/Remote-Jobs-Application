@@ -52,6 +52,7 @@ export default function ScraperPage() {
   const [crawlDepth, setCrawlDepth] = useState(1);
   const [country, setCountry] = useState('us');
   const [fileType, setFileType] = useState('');
+  const [timeFrame, setTimeFrame] = useState<string>('any');
 
   // Job state
   const [jobId, setJobId] = useState<string | null>(null);
@@ -209,6 +210,7 @@ export default function ScraperPage() {
         body.maxResults = maxResults;
         if (country) body.country = country;
         if (fileType) body.fileType = fileType;
+        if (timeFrame !== 'any') body.timeFrame = timeFrame;
       } else {
         body.crawlDepth = crawlDepth;
       }
@@ -529,6 +531,39 @@ export default function ScraperPage() {
               <p style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--muted)" }}>
                 💡 File type filter searches for specific document types containing emails (e.g., PDF resumes, contact lists)
               </p>
+
+              {/* Time Frame */}
+              <div style={{ marginTop: '1.5rem' }}>
+                <label style={{ fontWeight: 600, fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>
+                  📅 Time Frame
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.5rem' }}>
+                  {[
+                    { id: 'any', label: 'Any time' },
+                    { id: 'day', label: 'Past 24h' },
+                    { id: 'week', label: 'Past week' },
+                    { id: 'month', label: 'Past month' },
+                    { id: '3months', label: 'Past 3 months' },
+                    { id: '6months', label: 'Past 6 months' },
+                    { id: 'year', label: 'Past year' },
+                    { id: '2years', label: 'Past 2 years' },
+                    { id: '3years', label: 'Past 3 years' },
+                    { id: '5years', label: 'Past 5 years' },
+                  ].map((tf) => (
+                    <button
+                      key={tf.id}
+                      className={`btn ${timeFrame === tf.id ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setTimeFrame(tf.id)}
+                      style={{ fontSize: '0.8rem', padding: '0.5rem 0.75rem' }}
+                    >
+                      {tf.label}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
+                  Filter results to only include pages published within this time range
+                </p>
+              </div>
             </div>
           )}
 

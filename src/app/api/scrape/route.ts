@@ -10,7 +10,7 @@ import type { ScrapeJob } from '@/lib/types';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { query, mode, engines, maxResults, crawlDepth, country, fileType } = body;
+    const { query, mode, engines, maxResults, crawlDepth, country, fileType, timeFrame } = body;
     
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
       return Response.json({ error: 'Query is required' }, { status: 400 });
@@ -24,9 +24,9 @@ export async function POST(request: NextRequest) {
     const jobId = uuidv4();
     
     db.prepare(`
-      INSERT INTO scrape_jobs (id, mode, query, search_engines, max_results, crawl_depth)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(jobId, mode, query.trim(), engines ? JSON.stringify(engines) : null, maxResults || 200, crawlDepth || 1);
+      INSERT INTO scrape_jobs (id, mode, query, search_engines, max_results, crawl_depth, time_frame)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(jobId, mode, query.trim(), engines ? JSON.stringify(engines) : null, maxResults || 200, crawlDepth || 1, timeFrame || 'any');
     
     // Store country and fileType in the query JSON for the scraper to use
     const meta: Record<string, any> = {};

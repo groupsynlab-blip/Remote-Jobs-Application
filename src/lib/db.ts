@@ -539,7 +539,17 @@ function initializeDb(db: Database.Database) {
       db.exec(`ALTER TABLE email_bounces ADD COLUMN bounced_at TEXT`);
     }
   } catch (e: any) {
-    console.error("[DB] email_bounces migration error:", e.message);
+  // Migrate scrape_jobs table to add time_frame column
+  try {
+    const scrapeJobCols = db.prepare("PRAGMA table_info(scrape_jobs)").all() as { name: string }[];
+    if (!scrapeJobCols.some(c => c.name === 'time_frame')) {
+      db.exec(`ALTER TABLE scrape_jobs ADD COLUMN time_frame TEXT NOT NULL DEFAULT 'any'`);
+    }
+  } catch (e: any) {
+    console.error("[DB] scrape_jobs time_frame migration error:", e.message);
+  }
+
+  // Migrate email_bounces to add error_message and bounced_at columns
   }
 }
 

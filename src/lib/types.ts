@@ -146,6 +146,7 @@ export interface ScrapeJob {
   search_engines: string | null;    // JSON array of engines used (search mode)
   max_results: number;              // max results per engine
   crawl_depth: number;              // how deep to crawl links (crawl mode)
+  time_frame: string | null;        // date range filter
   total_pages_scraped: number;
   total_emails_found: number;
   unique_emails: number;
