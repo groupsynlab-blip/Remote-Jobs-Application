@@ -3,6 +3,20 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+// Edit-form shape: selected_smtp_ids is parsed to an array (API stores JSON string)
+interface CampaignEditForm {
+  name?: string;
+  template_id?: string;
+  contact_list_id?: string;
+  delay_seconds?: number;
+  reply_to?: string;
+  enable_tracking?: number;
+  enable_unsubscribe?: number;
+  selected_smtp_ids?: string[];
+  subject_rotation?: string[];
+  template_rotation?: string[];
+}
+
 interface Campaign {
   id: string;
   name: string;
@@ -50,7 +64,7 @@ export default function CampaignsPage() {
   const [lists, setLists] = useState<List[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Campaign>>({});
+  const [editForm, setEditForm] = useState<CampaignEditForm>({});
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -87,7 +101,7 @@ export default function CampaignsPage() {
       reply_to: c.reply_to || "",
       enable_tracking: c.enable_tracking,
       enable_unsubscribe: c.enable_unsubscribe,
-      selected_smtp_ids: c.selected_smtp_ids ? JSON.parse(c.selected_smtp_ids) : smtpConfigs.map((s: any) => s.id),
+      selected_smtp_ids: c.selected_smtp_ids ? (JSON.parse(c.selected_smtp_ids) as string[]) : smtpConfigs.map((s: any) => s.id),
     });
   };
 
@@ -339,7 +353,7 @@ export default function CampaignsPage() {
                                     border: `1px solid ${(editForm.selected_smtp_ids || []).includes(smtp.id) ? "var(--success)" : "var(--border)"}`, cursor: "pointer" }}>
                                     <input type="checkbox" checked={(editForm.selected_smtp_ids || []).includes(smtp.id)}
                                       onChange={(e) => {
-                                        const current = (editForm.selected_smtp_ids as string[]) || [];
+                                        const current = editForm.selected_smtp_ids || [];
                                         const next = e.target.checked ? [...current, smtp.id] : current.filter((id) => id !== smtp.id);
                                         setEditForm({ ...editForm, selected_smtp_ids: next });
                                       }} />
