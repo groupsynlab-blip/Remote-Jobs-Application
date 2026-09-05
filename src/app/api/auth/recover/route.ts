@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getClientIp, checkRateLimit, recordFailure, clearFailures, rateLimitResponse } from '@/lib/rate-limit';
+import { hashPassword, validatePasswordStrength } from '@/lib/password';
 
 const SECRET = process.env.AUTH_SECRET || 'bulk-emailer-session-secret-2024';
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000;
-
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 async function sign(data: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -38,8 +30,9 @@ export async function POST(req: NextRequest) {
   if (!recoveryCode || !newPassword) {
     return NextResponse.json({ error: 'Recovery code and new password required' }, { status: 400 });
   }
-  if (newPassword.length < 4) {
-    return NextResponse.json({ error: 'Password must be at least 4 characters' }, { status: 400 });
+  const strength = validatePasswordStrength(newPassword);
+  if (!strength.ok) {
+    return NextResponse.json({ error: strength.message }, { status: 400 });
   }
 
   const db = getDb();
@@ -58,7 +51,7 @@ export async function POST(req: NextRequest) {
   clearFailures(ip);
 
   // Set new password
-  const newHash = await hashPassword(newPassword);
+  const newHash = hashPassword(newPassword);
   db.prepare("UPDATE settings SET value = ? WHERE key = 'app_password'").run(newHash);
 
   // Generate new recovery code

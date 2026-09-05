@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export default function LoginPage() {
   );
 }
 
-type Mode = "login" | "recovery-code" | "forgot";
+type Mode = "login" | "recovery-code" | "forgot" | "setup";
 
 function LoginForm() {
   const [password, setPassword] = useState("");
@@ -31,8 +31,61 @@ function LoginForm() {
   const [resetCode, setResetCode] = useState("");
   const [resetDone, setResetDone] = useState(false);
   const [newRecoveryCode, setNewRecoveryCode] = useState("");
+  // First-use password setup
+  const [setupPassword, setSetupPassword] = useState("");
+  const [setupConfirm, setSetupConfirm] = useState("");
+  const [passwordSet, setPasswordSet] = useState<boolean | null>(null); // null = not yet checked
   const searchParams = useSearchParams();
   const from = searchParams.get("from") || "/";
+
+  // Check whether a password exists (decides login vs first-use setup form)
+  useEffect(() => {
+    fetch("/api/auth").then(r => r.json()).then(d => {
+      setPasswordSet(!!d.passwordSet);
+      if (!d.passwordSet) setMode("setup");
+    }).catch(() => setPasswordSet(true)); // fail open to plain login
+  }, []);
+
+  const strengthScore = (() => {
+    const p = setupPassword;
+    let s = 0;
+    if (p.length >= 10) s++;
+    if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++;
+    if (/[0-9]/.test(p)) s++;
+    if (p.length >= 14 && /[^A-Za-z0-9]/.test(p)) s++;
+    return s;
+  })();
+  const strengthLabels = ["Too weak", "Weak", "Fair", "Good", "Strong"];
+  const strengthColors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#16a34a"];
+  const setupValid =
+    setupPassword.length >= 10 &&
+    /[a-z]/.test(setupPassword) && /[A-Z]/.test(setupPassword) && /[0-9]/.test(setupPassword) &&
+    setupPassword === setupConfirm;
+
+  // ── First-use password setup ──
+  const handleSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!setupValid) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: setupPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setRecoveryCode(data.recoveryCode || "");
+        setMode("recovery-code");
+      } else {
+        setError(data.error || "Could not set password");
+      }
+    } catch {
+      setError("Connection error. Please try again.");
+    }
+    setLoading(false);
+  };
 
   // ── Login ──
   const handleLogin = async (e: React.FormEvent) => {
@@ -90,6 +143,75 @@ function LoginForm() {
     }
     setLoading(false);
   };
+
+  // ── First-use setup form ──
+  if (mode === "setup") {
+    return (
+      <div style={pageStyle}>
+        <div style={cardStyle}>
+          <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+            <div style={{ ...iconBoxStyle, background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>🔐</div>
+            <h1 style={{ color: "#f1f5f9", fontSize: "1.4rem", fontWeight: 700, margin: "0 0 0.3rem" }}>Set Your Password</h1>
+            <p style={{ color: "#64748b", fontSize: "0.8rem", margin: 0 }}>
+              This app is brand new — choose a strong password to protect it.
+            </p>
+          </div>
+
+          {error && <div style={errorStyle}>❌ {error}</div>}
+
+          <form onSubmit={handleSetup}>
+            <div style={{ marginBottom: "1rem" }}>
+              <label style={labelStyle}>New Password</label>
+              <input
+                type="password" autoFocus value={setupPassword}
+                onChange={(e) => setSetupPassword(e.target.value)}
+                placeholder="At least 10 characters"
+                style={inputStyle}
+              />
+              {setupPassword && (
+                <div style={{ marginTop: "0.5rem" }}>
+                  <div style={{ display: "flex", gap: "0.25rem" }}>
+                    {[0, 1, 2, 3].map(i => (
+                      <div key={i} style={{
+                        flex: 1, height: "4px", borderRadius: "2px",
+                        background: i < strengthScore ? strengthColors[strengthScore] : "rgba(148,163,184,0.2)",
+                        transition: "background 0.2s",
+                      }} />
+                    ))}
+                  </div>
+                  <div style={{ color: strengthColors[strengthScore], fontSize: "0.7rem", marginTop: "0.25rem" }}>
+                    {strengthLabels[strengthScore]}{strengthScore < 3 ? " — add uppercase, numbers, or length" : ""}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: "1.25rem" }}>
+              <label style={labelStyle}>Confirm Password</label>
+              <input
+                type="password" value={setupConfirm}
+                onChange={(e) => setSetupConfirm(e.target.value)}
+                placeholder="Repeat the same password"
+                style={{
+                  ...inputStyle,
+                  borderColor: setupConfirm && setupConfirm !== setupPassword ? "rgba(239,68,68,0.5)" : inputStyle.borderColor,
+                }}
+              />
+              {setupConfirm && setupConfirm !== setupPassword && (
+                <p style={{ color: "#f87171", fontSize: "0.7rem", marginTop: "0.35rem" }}>Passwords do not match</p>
+              )}
+            </div>
+            <button type="submit" disabled={loading || !setupValid} style={{ ...btnStyle, opacity: loading || !setupValid ? 0.6 : 1 }}>
+              {loading ? "⏳ Setting up..." : "🔐 Set Password & Continue"}
+            </button>
+            <p style={{ color: "#475569", fontSize: "0.7rem", marginTop: "0.75rem", lineHeight: 1.5, textAlign: "center" }}>
+              Requirements: 10+ characters with uppercase, lowercase, and a number.
+              A recovery code will be shown after setup — save it.
+            </p>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   // ── Recovery code display ──
   if (mode === "recovery-code") {

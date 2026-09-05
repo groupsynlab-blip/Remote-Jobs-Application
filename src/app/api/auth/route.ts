@@ -2,17 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { getClientIp, checkRateLimit, recordFailure, clearFailures, rateLimitResponse } from '@/lib/rate-limit';
+import { hashPassword, verifyPassword, validatePasswordStrength } from '@/lib/password';
 
 const SECRET = process.env.AUTH_SECRET || 'bulk-emailer-session-secret-2024';
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+function generateRecoveryCode(): string {
+  const words = ['ALPHA','BRAVO','CHARLIE','DELTA','ECHO','FOXTROT','GOLF','HOTEL','INDIA','JULIET','KILO','LIMA','MIKE','NOVEMBER','OSCAR','PAPA','QUEBEC','ROMEO','SIERRA','TANGO','UNIFORM','VICTOR','WHISKY','XRAY','YANKEE','ZULU'];
+  const w1 = words[Math.floor(Math.random() * words.length)];
+  const w2 = words[Math.floor(Math.random() * words.length)];
+  const d1 = String(Math.floor(1000 + Math.random() * 9000));
+  const d2 = String(Math.floor(1000 + Math.random() * 9000));
+  return `${w1}-${d1}-${w2}-${d2}`;
 }
 
 async function sign(data: string, secret: string): Promise<string> {
@@ -41,7 +42,14 @@ function setSessionOnResponse(response: NextResponse, cookieValue: string) {
   return response;
 }
 
-/** POST /api/auth — login with password */
+/** GET /api/auth — whether a password has been set (for login page UI) */
+export async function GET() {
+  const db = getDb();
+  const stored = db.prepare("SELECT value FROM settings WHERE key = 'app_password'").get() as { value: string } | undefined;
+  return NextResponse.json({ passwordSet: !!stored });
+}
+
+/** POST /api/auth — login with password (sets it on first use) */
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip).allowed) {
@@ -60,28 +68,32 @@ export async function POST(req: NextRequest) {
   let isFirstTime = false;
 
   if (!stored) {
-    // First use — store password and generate recovery code
-    const hash = await hashPassword(password);
+    // First use — require a strong password before accepting it
+    const strength = validatePasswordStrength(password);
+    if (!strength.ok) {
+      return NextResponse.json({ error: strength.message, firstUse: true }, { status: 400 });
+    }
+    const hash = hashPassword(password);
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_password', ?)").run(hash);
-
-    // Generate a memorable recovery code: WORD-4DIGITS-WORD-4DIGITS
-    const words = ['ALPHA','BRAVO','CHARLIE','DELTA','ECHO','FOXTROT','GOLF','HOTEL','INDIA','JULIET','KILO','LIMA','MIKE','NOVEMBER','OSCAR','PAPA','QUEBEC','ROMEO','SIERRA','TANGO','UNIFORM','VICTOR','WHISKY','XRAY','YANKEE','ZULU'];
-    const w1 = words[Math.floor(Math.random() * words.length)];
-    const w2 = words[Math.floor(Math.random() * words.length)];
-    const d1 = String(Math.floor(1000 + Math.random() * 9000));
-    const d2 = String(Math.floor(1000 + Math.random() * 9000));
-    const recoveryCode = `${w1}-${d1}-${w2}-${d2}`;
+    const recoveryCode = generateRecoveryCode();
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('recovery_code', ?)").run(recoveryCode);
 
     stored = { value: hash };
     isFirstTime = true;
   }
 
-  // Verify password
-  const inputHash = await hashPassword(password);
-  if (inputHash !== stored.value) {
+  // Verify password (scrypt or legacy SHA-256)
+  const { ok, needsUpgrade } = verifyPassword(password, stored.value);
+  if (!ok) {
     recordFailure(ip);
     return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
+  }
+
+  // Transparent upgrade: legacy SHA-256 hash -> salted scrypt
+  if (needsUpgrade) {
+    try {
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'app_password'").run(hashPassword(password));
+    } catch {}
   }
 
   clearFailures(ip);
@@ -117,32 +129,29 @@ export async function PUT(req: NextRequest) {
   if (!currentPassword || !newPassword) {
     return NextResponse.json({ error: 'Both current and new password required' }, { status: 400 });
   }
-  if (newPassword.length < 4) {
-    return NextResponse.json({ error: 'Password must be at least 4 characters' }, { status: 400 });
-  }
 
   const db = getDb();
   const stored = db.prepare("SELECT value FROM settings WHERE key = 'app_password'").get() as { value: string } | undefined;
   if (!stored) return NextResponse.json({ error: 'No password set' }, { status: 400 });
 
-  const currentHash = await hashPassword(currentPassword);
-  if (currentHash !== stored.value) {
+  const currentCheck = verifyPassword(currentPassword, stored.value);
+  if (!currentCheck.ok) {
     recordFailure(ip);
     return NextResponse.json({ error: 'Current password is incorrect' }, { status: 401 });
   }
 
   clearFailures(ip);
 
-  const newHash = await hashPassword(newPassword);
+  const strength = validatePasswordStrength(newPassword);
+  if (!strength.ok) {
+    return NextResponse.json({ error: strength.message }, { status: 400 });
+  }
+
+  const newHash = hashPassword(newPassword);
   db.prepare("UPDATE settings SET value = ? WHERE key = 'app_password'").run(newHash);
 
   // Regenerate recovery code
-  const words = ['ALPHA','BRAVO','CHARLIE','DELTA','ECHO','FOXTROT','GOLF','HOTEL','INDIA','JULIET','KILO','LIMA','MIKE','NOVEMBER','OSCAR','PAPA','QUEBEC','ROMEO','SIERRA','TANGO','UNIFORM','VICTOR','WHISKY','XRAY','YANKEE','ZULU'];
-  const w1 = words[Math.floor(Math.random() * words.length)];
-  const w2 = words[Math.floor(Math.random() * words.length)];
-  const d1 = String(Math.floor(1000 + Math.random() * 9000));
-  const d2 = String(Math.floor(1000 + Math.random() * 9000));
-  const newRecoveryCode = `${w1}-${d1}-${w2}-${d2}`;
+  const newRecoveryCode = generateRecoveryCode();
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('recovery_code', ?)").run(newRecoveryCode);
 
   const cookieValue = await createSessionCookie();
