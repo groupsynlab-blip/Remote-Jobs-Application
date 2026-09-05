@@ -6,6 +6,7 @@ interface BlacklistItem { id: string; email?: string; domain?: string; reason: s
 
 export default function SettingsPage() {
   const [appUrl, setAppUrl] = useState("");
+  const [confirmThreshold, setConfirmThreshold] = useState("1000");
   const [darkMode, setDarkMode] = useState(false);
   const [blacklist, setBlacklist] = useState<BlacklistItem[]>([]);
   const [newBlacklistEmail, setNewBlacklistEmail] = useState("");
@@ -34,6 +35,7 @@ export default function SettingsPage() {
     fetch("/api/settings").then(r => r.json()).then(d => {
       setEnableTracking(d.enable_tracking !== "false");
       setEnableUnsubscribe(d.enable_unsubscribe !== "false");
+      setConfirmThreshold(d.bulk_confirm_threshold || "1000");
       setWebhookEmail(d.webhook_email_recipient || "");
       setSlackWebhook(d.slack_webhook_url || "");
       setDiscordWebhook(d.discord_webhook_url || "");
@@ -126,6 +128,16 @@ export default function SettingsPage() {
     alert("App URL saved!");
   };
 
+  const saveConfirmThreshold = async () => {
+    const n = parseInt(confirmThreshold, 10);
+    if (isNaN(n) || n < 0) {
+      alert("Please enter a valid number (0 to disable, or a minimum count)");
+      return;
+    }
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "bulk_confirm_threshold", value: String(n) }) });
+    alert("Safety threshold saved!");
+  };
+
   const toggleDarkMode = () => {
     const next = !darkMode;
     setDarkMode(next);
@@ -175,6 +187,18 @@ export default function SettingsPage() {
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <input className="input" value={appUrl} onChange={e => setAppUrl(e.target.value)} placeholder="https://your-app.up.railway.app" />
               <button className="btn btn-primary" onClick={saveAppUrl}>Save</button>
+            </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "1rem" }}>
+            <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.75rem" }}>🛡️ Bulk Send Safety</h3>
+            <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.75rem" }}>Show a confirmation prompt before resuming/retrying a campaign with more than this many queued emails (0 disables the prompt)</p>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end" }}>
+              <div style={{ width: "160px" }}>
+                <label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Confirmation Threshold</label>
+                <input className="input" type="number" min="0" value={confirmThreshold} onChange={e => setConfirmThreshold(e.target.value)} placeholder="1000" />
+              </div>
+              <button className="btn btn-primary" onClick={saveConfirmThreshold}>Save</button>
             </div>
           </div>
 

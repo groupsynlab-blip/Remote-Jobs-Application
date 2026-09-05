@@ -129,9 +129,18 @@ export default function CampaignsPage() {
     }
   };
 
+  const [confirmThreshold, setConfirmThreshold] = useState(1000);
+
+  useEffect(() => {
+    fetch("/api/settings").then(r => r.json()).then(d => {
+      const n = parseInt(d.bulk_confirm_threshold, 10);
+      if (!isNaN(n)) setConfirmThreshold(n);
+    }).catch(() => {});
+  }, []);
+
   const resumeCampaign = async (id: string, queuedCount?: number) => {
     // Safety prompt: confirm before resuming a large send
-    if (queuedCount !== undefined && queuedCount > 1000) {
+    if (queuedCount !== undefined && queuedCount > confirmThreshold) {
       const ok = window.confirm(
         `This campaign has ${queuedCount.toLocaleString()} queued emails.\n\n` +
         "Resuming will start sending them all. Continue?"
@@ -152,7 +161,7 @@ export default function CampaignsPage() {
 
   const retryFailed = async (id: string, retryCount?: number) => {
     // Safety prompt: confirm before re-queuing a large batch
-    if (retryCount !== undefined && retryCount > 1000) {
+    if (retryCount !== undefined && retryCount > confirmThreshold) {
       const ok = window.confirm(
         `This will re-queue ${retryCount.toLocaleString()} skipped/failed emails for sending.\n\n` +
         "Sending will start automatically. Continue?"

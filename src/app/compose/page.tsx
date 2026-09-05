@@ -303,9 +303,15 @@ export default function ComposePage() {
   };
 
   const resumeSending = async () => {
-    // Safety prompt: confirm before resuming a large send
+    // Safety prompt: confirm before resuming a large send (threshold from Settings)
     const remaining = displayRemaining ?? 0;
-    if (remaining > 1000) {
+    let threshold = 1000;
+    try {
+      const d = await fetch("/api/settings").then(r => r.json());
+      const n = parseInt(d.bulk_confirm_threshold, 10);
+      if (!isNaN(n)) threshold = n;
+    } catch {}
+    if (threshold > 0 && remaining > threshold) {
       const ok = window.confirm(
         `This campaign has ${remaining.toLocaleString()} emails still queued.\n\n` +
         "Resuming will start sending them all. Continue?"
