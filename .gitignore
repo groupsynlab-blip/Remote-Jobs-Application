@@ -10,3 +10,7 @@ data/
 nixpacks.toml
 .nixpacks/
 .DS_Store
+
+# build artifacts that churn on every dev/build run
+tsconfig.tsbuildinfo
+next-env.d.ts
