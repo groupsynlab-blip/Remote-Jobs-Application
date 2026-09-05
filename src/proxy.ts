@@ -54,7 +54,7 @@ async function verifySession(cookieValue: string, secret: string): Promise<boole
   return signature === expectedSig;
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow public paths
