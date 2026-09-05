@@ -19,6 +19,29 @@ export async function GET() {
       LEFT JOIN contact_lists cl ON c.contact_list_id = cl.id
       ORDER BY c.created_at DESC
     `).all();
+
+    // Per-SMTP sent breakdown for active campaigns (live counter display)
+    const campaignsArr = campaigns as any[];
+    if (campaignsArr.some((c) => c.status === 'sending' || c.status === 'paused')) {
+      const rows = db.prepare(`
+        SELECT campaign_id, smtp_config_id, COUNT(*) as cnt
+        FROM email_logs
+        WHERE status = 'sent' AND smtp_config_id IS NOT NULL
+          AND campaign_id IN (SELECT id FROM campaigns WHERE status IN ('sending', 'paused'))
+        GROUP BY campaign_id, smtp_config_id
+      `).all() as { campaign_id: string; smtp_config_id: string; cnt: number }[];
+      const byCampaign: Record<string, Record<string, number>> = {};
+      for (const r of rows) {
+        if (!byCampaign[r.campaign_id]) byCampaign[r.campaign_id] = {};
+        byCampaign[r.campaign_id][r.smtp_config_id] = r.cnt;
+      }
+      for (const c of campaignsArr) {
+        if (c.status === 'sending' || c.status === 'paused') {
+          c.smtp_sent_counts = byCampaign[c.id] || {};
+        }
+      }
+    }
+
     return NextResponse.json(campaigns);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to get campaigns' }, { status: 500 });

@@ -40,18 +40,90 @@ const SETTING_GROUPS: { title: string; rows: { key: string; label: string; secre
   },
 ];
 
-function OverviewTab({ settings }: { settings: Record<string, string> }) {
+function OverviewTab({ settings, onSaved }: { settings: Record<string, string>; onSaved: (d: Record<string, string>) => void }) {
   const [showSecrets, setShowSecrets] = useState(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const listedKeys = new Set(SETTING_GROUPS.flatMap(g => g.rows.map(r => r.key)));
   const extraKeys = Object.keys(settings).filter(
     k => !listedKeys.has(k) && settings[k]
   );
+
+  // Hashed/credential values managed by dedicated flows — not editable as raw text
+  const READ_ONLY = new Set(["app_password", "recovery_code"]);
+
+  const startEdit = (key: string) => { setEditingKey(key); setEditValue(settings[key] || ""); };
+  const cancelEdit = () => { setEditingKey(null); setEditValue(""); };
+
+  const saveEdit = async (key: string) => {
+    setSavingKey(key);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: editValue }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      const fresh = await fetch("/api/settings").then(r => r.json());
+      onSaved(fresh);
+      setEditingKey(null);
+      setEditValue("");
+    } catch {
+      alert("Failed to save setting");
+    } finally {
+      setSavingKey(null);
+    }
+  };
 
   const display = (key: string, secret?: boolean) => {
     const v = settings[key];
     if (!v) return "—";
     if (secret && !showSecrets) return "•".repeat(Math.min(v.length, 12));
     return v;
+  };
+
+  const renderRow = (key: string, label: string, secret?: boolean) => {
+    const isEditing = editingKey === key;
+    const readOnly = READ_ONLY.has(key);
+    return (
+      <tr key={key} style={{ borderBottom: "1px solid var(--border)", background: isEditing ? "rgba(139,92,246,0.05)" : "transparent" }}>
+        <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", fontSize: "0.8rem", fontWeight: 500, width: "45%" }}>
+          {label}
+          {readOnly && <span title="Managed by the password / recovery flow — reset from the login page" style={{ cursor: "help" }}> 🔒</span>}
+        </td>
+        <td style={{ padding: "0.5rem 0", fontSize: "0.8rem", color: "var(--muted)", wordBreak: "break-all" }}>
+          {isEditing ? (
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", width: "100%" }}>
+              <input
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                autoFocus
+                placeholder="Empty value clears the setting"
+                style={{ flex: 1, minWidth: 0, padding: "0.35rem 0.5rem", fontSize: "0.8rem", borderRadius: "6px", border: "1px solid var(--accent)", background: "var(--bg-primary)", color: "var(--fg-primary)" }}
+                onKeyDown={e => {
+                  if (e.key === "Enter") saveEdit(key);
+                  if (e.key === "Escape") cancelEdit();
+                }}
+              />
+              <button className="btn btn-primary" style={{ fontSize: "0.7rem", padding: "0.3rem 0.6rem", whiteSpace: "nowrap" }} disabled={savingKey === key} onClick={() => saveEdit(key)}>
+                {savingKey === key ? "Saving…" : "💾 Save"}
+              </button>
+              <button className="btn btn-secondary" style={{ fontSize: "0.7rem", padding: "0.3rem 0.6rem" }} onClick={cancelEdit}>✖ Cancel</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ wordBreak: "break-all" }}>{display(key, secret)}</span>
+              {!readOnly && (
+                <button className="btn btn-secondary" style={{ fontSize: "0.65rem", padding: "0.15rem 0.5rem", whiteSpace: "nowrap", flexShrink: 0 }} onClick={() => startEdit(key)}>
+                  ✏️ Edit
+                </button>
+              )}
+            </div>
+          )}
+        </td>
+      </tr>
+    );
   };
 
   return (
@@ -67,12 +139,7 @@ function OverviewTab({ settings }: { settings: Record<string, string> }) {
           <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.75rem" }}>{group.title}</h3>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <tbody>
-              {group.rows.map(row => (
-                <tr key={row.key} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", fontSize: "0.8rem", fontWeight: 500, width: "45%" }}>{row.label}</td>
-                  <td style={{ padding: "0.5rem 0", fontSize: "0.8rem", color: "var(--muted)", wordBreak: "break-all" }}>{display(row.key, row.secret)}</td>
-                </tr>
-              ))}
+              {group.rows.map(row => renderRow(row.key, row.label, row.secret))}
             </tbody>
           </table>
         </div>
@@ -83,12 +150,7 @@ function OverviewTab({ settings }: { settings: Record<string, string> }) {
           <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.75rem" }}>🔧 Other stored settings</h3>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <tbody>
-              {extraKeys.map(key => (
-                <tr key={key} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", fontSize: "0.8rem", fontWeight: 500, width: "45%" }}>{key}</td>
-                  <td style={{ padding: "0.5rem 0", fontSize: "0.8rem", color: "var(--muted)", wordBreak: "break-all" }}>{settings[key]}</td>
-                </tr>
-              ))}
+              {extraKeys.map(key => renderRow(key, key))}
             </tbody>
           </table>
         </div>
@@ -446,7 +508,7 @@ export default function SettingsPage() {
       )}
 
       {activeTab === "overview" && (
-        <OverviewTab settings={allSettings} />
+        <OverviewTab settings={allSettings} onSaved={(d) => setAllSettings(d)} />
       )}
 
       {activeTab === "about" && (

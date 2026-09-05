@@ -43,6 +43,7 @@ interface Campaign {
   log_skipped: number;
   log_queued: number;
   selected_smtp_ids: string;
+  smtp_sent_counts?: Record<string, number>;
 }
 
 interface Template { id: string; name: string; subject: string; }
@@ -73,6 +74,18 @@ export default function CampaignsPage() {
 
   useEffect(() => { loadData(); }, []);
 
+  // Live-refresh every 3s while any campaign is actively sending
+  useEffect(() => {
+    const anySending = campaigns.some((c) => c.status === 'sending');
+    if (!anySending) return;
+    const t = setInterval(() => {
+      fetch("/api/campaigns").then((r) => r.json()).then((data) => {
+        if (Array.isArray(data)) setCampaigns(data);
+      }).catch(() => {});
+    }, 3000);
+    return () => clearInterval(t);
+  }, [campaigns.some((c) => c.status === 'sending')]);
+
   const loadData = async () => {
     setLoading(true);
     const [campRes, tplRes, listRes, smtpRes] = await Promise.all([
@@ -101,7 +114,10 @@ export default function CampaignsPage() {
       reply_to: c.reply_to || "",
       enable_tracking: c.enable_tracking,
       enable_unsubscribe: c.enable_unsubscribe,
-      selected_smtp_ids: c.selected_smtp_ids ? (JSON.parse(c.selected_smtp_ids) as string[]) : smtpConfigs.map((s: any) => s.id),
+      // Filter out IDs of SMTPs that no longer exist (prevents phantom selections)
+      selected_smtp_ids: c.selected_smtp_ids
+        ? (JSON.parse(c.selected_smtp_ids) as string[]).filter((id) => smtpConfigs.some((s: any) => s.id === id))
+        : smtpConfigs.map((s: any) => s.id),
     });
   };
 
@@ -398,6 +414,24 @@ export default function CampaignsPage() {
                         {(c.log_skipped || 0) > 0 && (
                           <span style={{ fontSize: "0.65rem", color: "var(--warning)" }}>{c.log_skipped} skipped</span>
                         )}
+                        {c.status === 'sending' && smtpConfigs.length > 0 && (() => {
+                          const counts = c.smtp_sent_counts || {};
+                          const used = smtpConfigs.filter((s: any) => (counts[s.id] || 0) > 0);
+                          if (used.length === 0) return null;
+                          return (
+                            <div style={{ marginTop: "0.35rem", display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
+                              {used.map((s: any) => (
+                                <span key={s.id} style={{
+                                  fontSize: "0.65rem", padding: "0.1rem 0.4rem", borderRadius: "0.25rem",
+                                  background: "rgba(59,130,246,0.12)", color: "#60a5fa",
+                                  border: "1px solid rgba(59,130,246,0.3)", whiteSpace: "nowrap",
+                                }} title={`${s.name}: ${counts[s.id]} sent via this SMTP`}>
+                                  {s.name || s.from_email}: {counts[s.id]}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{formatDate(c.created_at)}</td>
                       <td>
