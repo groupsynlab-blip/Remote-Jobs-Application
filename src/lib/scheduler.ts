@@ -394,7 +394,7 @@ async function sendBatch(
 
     // Skip unsubscribed
     if (enableUnsubscribe && isEmailUnsubscribed(emailLog.contact_email)) {
-      db.prepare("UPDATE email_logs SET status = 'failed', error_message = 'Recipient unsubscribed' WHERE id = ?").run(emailLog.id);
+      db.prepare("UPDATE email_logs SET status = 'skipped', error_message = 'Recipient unsubscribed' WHERE id = ?").run(emailLog.id);
       skippedCount++;
       continue;
     }
@@ -474,9 +474,9 @@ async function sendBatch(
       sentCount++;
     } catch (error: any) {
       db.prepare(
-        "UPDATE email_logs SET status = 'failed', error_message = ?, smtp_config_id = ? WHERE id = ?"
+        "UPDATE email_logs SET status = 'skipped', error_message = ?, smtp_config_id = ? WHERE id = ?"
       ).run(error.message || 'Unknown error', smtpConfig.id, emailLog.id);
-      failedCount++;
+      skippedCount++;
     }
 
     // Yield to event loop every email so sending/scraping/verification are not blocked
@@ -487,9 +487,10 @@ async function sendBatch(
   db.prepare(`
     UPDATE campaigns SET
       sent_count = sent_count + ?,
-      failed_count = failed_count + ?
+      failed_count = failed_count + ?,
+      skipped_count = COALESCE(skipped_count, 0) + ?
     WHERE id = ?
-  `).run(sentCount, failedCount, campaignId);
+  `).run(sentCount, failedCount, skippedCount, campaignId);
 
   // Check if all done
   const remaining = db.prepare(
@@ -498,7 +499,7 @@ async function sendBatch(
 
   if (remaining.count === 0) {
     const finalCampaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId) as any;
-    if (finalCampaign && finalCampaign.failed_count >= finalCampaign.total_count) {
+    if (finalCampaign && finalCampaign.sent_count === 0 && finalCampaign.failed_count >= finalCampaign.total_count) {
       db.prepare("UPDATE campaigns SET status = 'failed' WHERE id = ?").run(campaignId);
     } else {
       db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ?").run(campaignId);

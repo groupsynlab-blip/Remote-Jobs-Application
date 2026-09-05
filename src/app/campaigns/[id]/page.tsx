@@ -9,7 +9,7 @@ export default function CampaignDetailPage() {
   const id = params.id as string;
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "sent" | "failed" | "queued">("all");
+  const [filter, setFilter] = useState<"all" | "sent" | "skipped" | "failed" | "queued">("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
@@ -70,6 +70,7 @@ export default function CampaignDetailPage() {
         {[
           { label: "Total", value: campaign.total_count, color: "var(--accent)", bg: "rgba(99,102,241,0.08)" },
           { label: "Sent ✅", value: statusCounts.sent || 0, color: "#10b981", bg: "rgba(34,197,94,0.08)" },
+          { label: "Skipped ⏭", value: statusCounts.skipped || 0, color: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
           { label: "Failed ❌", value: statusCounts.failed || 0, color: "#ef4444", bg: "rgba(239,68,68,0.08)" },
           { label: "Queued 📧", value: statusCounts.queued || 0, color: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
           { label: "Opened 👁️", value: stats.opened || 0, color: "#8b5cf6", bg: "rgba(139,92,246,0.08)" },
@@ -131,13 +132,13 @@ export default function CampaignDetailPage() {
       {/* Filters */}
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: "0.25rem" }}>
-          {(["all", "sent", "failed", "queued"] as const).map((f) => (
+          {(["all", "sent", "skipped", "failed", "queued"] as const).map((f) => (
             <button key={f} onClick={() => { setFilter(f); setPage(1); }} style={{
               padding: "0.3rem 0.75rem", borderRadius: "0.75rem", border: "none",
               fontSize: "0.7rem", fontWeight: 600, cursor: "pointer", textTransform: "capitalize",
               background: filter === f ? "var(--accent)" : "var(--border)",
               color: filter === f ? "#fff" : "var(--muted)",
-            }}>{f === "all" ? "All" : f === "sent" ? `✅ Sent (${statusCounts[f] || 0})` : f === "failed" ? `❌ Failed (${statusCounts[f] || 0})` : `📧 Queued (${statusCounts[f] || 0})`}</button>
+            }}>{f === "all" ? "All" : f === "sent" ? `✅ Sent (${statusCounts[f] || 0})` : f === "skipped" ? `⏭ Skipped (${statusCounts[f] || 0})` : f === "failed" ? `❌ Failed (${statusCounts[f] || 0})` : `📧 Queued (${statusCounts[f] || 0})`}</button>
           ))}
         </div>
         <input

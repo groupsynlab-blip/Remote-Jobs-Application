@@ -141,7 +141,7 @@ export async function PATCH(
         return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
       }
       const result = db.prepare(
-        "UPDATE email_logs SET status = 'queued', error_message = NULL, smtp_config_id = NULL WHERE campaign_id = ? AND status = 'failed'"
+        "UPDATE email_logs SET status = 'queued', error_message = NULL, smtp_config_id = NULL WHERE campaign_id = ? AND status IN ('failed', 'skipped')"
       ).run(id);
       db.prepare("UPDATE campaigns SET status = 'sending', sent_at = datetime('now') WHERE id = ?").run(id);
       return NextResponse.json({ success: true, retried: result.changes });
@@ -149,7 +149,7 @@ export async function PATCH(
 
     if (body.action === 'export_failed') {
       const failed = db.prepare(
-        "SELECT contact_email, contact_name, error_message, created_at FROM email_logs WHERE campaign_id = ? AND status = 'failed'"
+        "SELECT contact_email, contact_name, error_message, created_at FROM email_logs WHERE campaign_id = ? AND status IN ('failed', 'skipped')"
       ).all(id) as any[];
 
       const header = 'email,name,error,failed_at\n';

@@ -12,7 +12,7 @@ export async function POST(
 
     // Count failed emails
     const failed = db.prepare(
-      "SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'failed'"
+      "SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status IN ('failed', 'skipped')"
     ).get(id) as { count: number };
 
     if (failed.count === 0) {
@@ -21,7 +21,7 @@ export async function POST(
 
     // Reset failed emails back to queued
     const result = db.prepare(
-      "UPDATE email_logs SET status = 'queued', error_message = NULL, sent_at = NULL, smtp_config_id = NULL WHERE campaign_id = ? AND status = 'failed'"
+      "UPDATE email_logs SET status = 'queued', error_message = NULL, sent_at = NULL, smtp_config_id = NULL WHERE campaign_id = ? AND status IN ('failed', 'skipped')"
     ).run(id);
 
     // Update campaign status to sending

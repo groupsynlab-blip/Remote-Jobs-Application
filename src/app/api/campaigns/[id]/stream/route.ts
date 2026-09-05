@@ -126,6 +126,7 @@ export async function GET(
         let templateIndex = 0;
         let totalSent = 0;
         let totalFailed = 0;
+        let totalSkipped = 0;
         let emailsSinceStatusCheck = 0;
         const delayMs = (campaign.delay_seconds || 2) * 1000;
 
@@ -269,12 +270,12 @@ export async function GET(
               }
             }
 
-            // All SMTPs failed for this email — mark as failed
+            // All SMTPs failed for this email — mark as skipped so it can be retried later
             if (!emailSent) {
-              db.prepare("UPDATE email_logs SET status = 'failed', error_message = ? WHERE id = ?")
+              db.prepare("UPDATE email_logs SET status = 'skipped', error_message = ? WHERE id = ?")
                 .run(lastError || 'All SMTP accounts failed', emailLog.id);
-              totalFailed++;
-              send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'failed', error: lastError });
+              totalSkipped++;
+              send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped, remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total, email: emailLog.contact_email, status: 'skipped', error: lastError });
             }
 
             if (!closed && delayMs > 0) {
@@ -283,8 +284,8 @@ export async function GET(
           }
         }
 
-        db.prepare('UPDATE campaigns SET sent_count = sent_count + ?, failed_count = failed_count + ? WHERE id = ?')
-          .run(totalSent, totalFailed, id);
+        db.prepare('UPDATE campaigns SET sent_count = sent_count + ?, failed_count = failed_count + ?, skipped_count = COALESCE(skipped_count, 0) + ? WHERE id = ?')
+          .run(totalSent, totalFailed, totalSkipped, id);
 
         const remaining = db.prepare(
           "SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'"
@@ -294,7 +295,7 @@ export async function GET(
           db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ?").run(id);
         }
 
-        send({ type: 'done', sent: totalSent, failed: totalFailed, skipped: 0, total, remaining: remaining.count });
+        send({ type: 'done', sent: totalSent, failed: totalFailed, skipped: totalSkipped, total, remaining: remaining.count });
       } catch (error: any) {
         console.error('[Stream] Error:', error.message);
         send({ type: 'error', message: error.message || 'Unknown error' });

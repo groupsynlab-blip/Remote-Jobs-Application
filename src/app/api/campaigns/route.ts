@@ -9,7 +9,11 @@ export async function GET() {
     const campaigns = db.prepare(`
       SELECT c.*, 
         t.name as template_name, 
-        cl.name as list_name
+        cl.name as list_name,
+        (SELECT COUNT(*) FROM email_logs WHERE campaign_id = c.id AND status = 'sent') as log_sent,
+        (SELECT COUNT(*) FROM email_logs WHERE campaign_id = c.id AND status = 'failed') as log_failed,
+        (SELECT COUNT(*) FROM email_logs WHERE campaign_id = c.id AND status = 'skipped') as log_skipped,
+        (SELECT COUNT(*) FROM email_logs WHERE campaign_id = c.id AND status = 'queued') as log_queued
       FROM campaigns c
       LEFT JOIN email_templates t ON c.template_id = t.id
       LEFT JOIN contact_lists cl ON c.contact_list_id = cl.id

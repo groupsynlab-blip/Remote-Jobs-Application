@@ -165,7 +165,7 @@ export default function HistoryPage() {
                 {smtpHistory.slice(0, 100).map((log: any, i: number) => (
                   <tr key={i}>
                     <td style={{ fontSize: "0.75rem" }}>{log.contact_email}</td>
-                    <td><span style={{ padding: "0.125rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: log.status === "sent" ? "rgba(16,185,129,0.1)" : log.status === "failed" ? "rgba(239,68,68,0.1)" : "var(--bg-secondary)", color: log.status === "sent" ? "#10b981" : log.status === "failed" ? "#ef4444" : "var(--muted)" }}>{log.status}</span></td>
+                    <td><span style={{ padding: "0.125rem 0.5rem", borderRadius: "1rem", fontSize: "0.65rem", fontWeight: 600, background: log.status === "sent" ? "rgba(16,185,129,0.1)" : log.status === "failed" ? "rgba(239,68,68,0.1)" : log.status === "skipped" ? "rgba(245,158,11,0.1)" : "var(--bg-secondary)", color: log.status === "sent" ? "#10b981" : log.status === "failed" ? "#ef4444" : log.status === "skipped" ? "#f59e0b" : "var(--muted)" }}>{log.status}</span></td>
                     <td style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{log.smtp_config_id ? log.smtp_config_id.slice(0, 8) + "..." : "—"}</td>
                     <td style={{ fontSize: "0.7rem", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.subject_used || "—"}</td>
                     <td style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{log.sent_at ? new Date(log.sent_at).toLocaleString() : "—"}</td>

@@ -47,7 +47,7 @@ export interface EmailLog {
   contact_id: string;
   contact_email: string;
   contact_name: string;
-  status: 'queued' | 'sent' | 'failed';
+  status: 'queued' | 'sent' | 'failed' | 'skipped';
   error_message: string | null;
   sent_at: string | null;
   smtp_config_id: string | null;

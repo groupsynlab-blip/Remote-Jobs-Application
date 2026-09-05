@@ -26,6 +26,7 @@ interface Campaign {
   log_count: number;
   log_sent: number;
   log_failed: number;
+  log_skipped: number;
   log_queued: number;
   selected_smtp_ids: string;
 }
@@ -355,6 +356,9 @@ export default function CampaignsPage() {
                         {(c.log_failed || 0) > 0 && (
                           <span style={{ fontSize: "0.65rem", color: "var(--danger)" }}>{c.log_failed} failed</span>
                         )}
+                        {(c.log_skipped || 0) > 0 && (
+                          <span style={{ fontSize: "0.65rem", color: "var(--warning)" }}>{c.log_skipped} skipped</span>
+                        )}
                       </td>
                       <td style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{formatDate(c.created_at)}</td>
                       <td>
@@ -366,9 +370,9 @@ export default function CampaignsPage() {
                           {c.status === 'paused' && (
                             <button className="btn btn-primary" onClick={() => resumeCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >▶ Resume</button>
                           )}
-                          {(c.log_failed || 0) > 0 && (c.status === 'sent' || c.status === 'paused' || c.status === 'completed' || c.status === 'failed') && (
+                          {((c.log_failed || 0) + (c.log_skipped || 0)) > 0 && (c.status === 'sent' || c.status === 'paused' || c.status === 'completed' || c.status === 'failed') && (
                             <>
-                              <button className="btn btn-secondary" onClick={() => retryFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(251,191,36,0.5)", color: "rgb(251,191,36)" }} >🔄 Retry Failed ({c.log_failed})</button>
+                              <button className="btn btn-secondary" onClick={() => retryFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(251,191,36,0.5)", color: "rgb(251,191,36)" }} >🔄 Retry Skipped ({(c.log_skipped || 0) + (c.log_failed || 0)})</button>
                               <button className="btn btn-secondary" onClick={() => exportFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(99,102,241,0.5)", color: "rgb(99,102,241)" }} >📥 Export CSV</button>
                             </>
                           )}
