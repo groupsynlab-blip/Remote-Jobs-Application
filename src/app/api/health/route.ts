@@ -37,11 +37,37 @@ export async function GET() {
     }
   }
 
+  // Mount diagnostics: /proc/mounts (Linux containers) lists every mountpoint;
+  // a Railway volume mounted at /app/data appears there as its own entry.
+  let mountCheck: {
+    procMountsAvailable: boolean;
+    appMount: string | null;
+    dataMount: string | null;
+    volumeMounted: boolean;
+  } = { procMountsAvailable: false, appMount: null, dataMount: null, volumeMounted: false };
+  try {
+    if (fs.existsSync('/proc/mounts')) {
+      mountCheck.procMountsAvailable = true;
+      const lines = fs.readFileSync('/proc/mounts', 'utf8').split('\n');
+      for (const line of lines) {
+        const parts = line.split(/\s+/);
+        if (parts.length >= 3) {
+          if (parts[1] === '/app' && !mountCheck.appMount) mountCheck.appMount = `${parts[0]} ${parts[2]}`;
+          if (parts[1] === '/app/data') mountCheck.dataMount = `${parts[0]} ${parts[2]}`;
+        }
+      }
+      mountCheck.volumeMounted = mountCheck.dataMount !== null;
+    }
+  } catch {
+    // /proc/mounts unavailable (non-Linux) — leave defaults
+  }
+
   return NextResponse.json({
     ok: true,
     service: 'bulk-emailer',
     cwd,
     dataDir: dataDirInfo,
+    mountCheck,
     db,
     time: new Date().toISOString(),
   });
