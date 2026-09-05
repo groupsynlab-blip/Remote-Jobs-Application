@@ -370,7 +370,7 @@ export default function CampaignsPage() {
                           {c.status === 'paused' && (
                             <button className="btn btn-primary" onClick={() => resumeCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >▶ Resume</button>
                           )}
-                          {((c.log_failed || 0) + (c.log_skipped || 0)) > 0 && (c.status === 'sent' || c.status === 'paused' || c.status === 'completed' || c.status === 'failed') && (
+                          {((c.log_failed || 0) + (c.log_skipped || 0)) > 0 && c.status !== 'sending' && c.status !== 'queued' && (
                             <>
                               <button className="btn btn-secondary" onClick={() => retryFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(251,191,36,0.5)", color: "rgb(251,191,36)" }} >🔄 Retry Skipped ({(c.log_skipped || 0) + (c.log_failed || 0)})</button>
                               <button className="btn btn-secondary" onClick={() => exportFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(99,102,241,0.5)", color: "rgb(99,102,241)" }} >📥 Export CSV</button>
