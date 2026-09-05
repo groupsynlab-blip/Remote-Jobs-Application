@@ -44,7 +44,8 @@ export async function GET() {
     appMount: string | null;
     dataMount: string | null;
     volumeMounted: boolean;
-  } = { procMountsAvailable: false, appMount: null, dataMount: null, volumeMounted: false };
+    allMounts: string[];
+  } = { procMountsAvailable: false, appMount: null, dataMount: null, volumeMounted: false, allMounts: [] };
   try {
     if (fs.existsSync('/proc/mounts')) {
       mountCheck.procMountsAvailable = true;
@@ -54,6 +55,11 @@ export async function GET() {
         if (parts.length >= 3) {
           if (parts[1] === '/app' && !mountCheck.appMount) mountCheck.appMount = `${parts[0]} ${parts[2]}`;
           if (parts[1] === '/app/data') mountCheck.dataMount = `${parts[0]} ${parts[2]}`;
+          // List real mountpoints (skip kernel pseudo-filesystems) so a
+          // volume attached at an unexpected path can be located.
+          if (!['proc', 'sysfs', 'devpts', 'tmpfs', 'cgroup', 'cgroup2', 'mqueue', 'shm', 'devtmpfs', 'securityfs', 'debugfs', 'pstore', 'bpf', 'configfs', 'fusectl', 'hugetlbfs', 'tracefs', 'efivarfs', 'binfmt_misc', 'overlay', 'nsfs'].includes(parts[2]) && !parts[1].startsWith('/sys') && !parts[1].startsWith('/proc') && !parts[1].startsWith('/dev')) {
+            mountCheck.allMounts.push(`${parts[1]} (${parts[2]})`);
+          }
         }
       }
       mountCheck.volumeMounted = mountCheck.dataMount !== null;
