@@ -20,12 +20,21 @@ function isSafeRedirectUrl(raw: string): boolean {
   }
 }
 
+/** Public origin of this deployment (proxy headers first — behind Railway etc.
+ *  request.url can point at the internal container address). */
+function siteOrigin(request: NextRequest): string {
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const proto = request.headers.get('x-forwarded-proto') || 'https';
+  if (host) return `${proto}://${host}`;
+  return new URL(request.url).origin;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const trackingId = searchParams.get('id');
   const url = searchParams.get('url');
 
-  const fallback = () => Response.redirect(new URL('/', request.url).toString(), 302);
+  const fallback = () => Response.redirect(new URL('/', siteOrigin(request)).toString(), 302);
 
   if (!trackingId) return fallback();
 
@@ -62,7 +71,7 @@ export async function GET(request: NextRequest) {
   // Redirect to original URL (or fallback) — validated to avoid open-redirect abuse
   const candidate = url ? decodeURIComponent(url) : '/';
   if (candidate.startsWith('/') && !candidate.startsWith('//')) {
-    return Response.redirect(new URL(candidate, request.url).toString(), 302);
+    return Response.redirect(new URL(candidate, siteOrigin(request)).toString(), 302);
   }
   if (isSafeRedirectUrl(candidate)) {
     return Response.redirect(candidate, 302);
