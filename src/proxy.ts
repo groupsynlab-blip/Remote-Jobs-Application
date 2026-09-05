@@ -5,6 +5,7 @@ import { verifySessionCookie } from '@/lib/session';
 const PUBLIC_PATHS = [
   '/login',
   '/api/auth',
+  '/api/health',
   '/api/landing-pages/public',
   '/landing-pages/public',
   '/api/track/click',
