@@ -4,6 +4,99 @@ import { useEffect, useState } from "react";
 
 interface BlacklistItem { id: string; email?: string; domain?: string; reason: string; created_at: string; }
 
+// ─── All Settings Overview Tab ──────────────────────────────────
+const SETTING_GROUPS: { title: string; rows: { key: string; label: string; secret?: boolean }[] }[] = [
+  {
+    title: "🌐 General",
+    rows: [
+      { key: "app_url", label: "App URL (tracking & unsubscribe links)" },
+      { key: "theme", label: "Theme" },
+      { key: "bulk_confirm_threshold", label: "Bulk send confirmation threshold" },
+    ],
+  },
+  {
+    title: "📨 Tracking & Unsubscribe",
+    rows: [
+      { key: "enable_tracking", label: "Open tracking enabled" },
+      { key: "enable_unsubscribe", label: "Unsubscribe links enabled" },
+      { key: "webhook_email_recipient", label: "Form submissions forwarded to" },
+    ],
+  },
+  {
+    title: "🔔 Notifications & Webhooks",
+    rows: [
+      { key: "smtp_alerts_enabled", label: "SMTP alerts enabled" },
+      { key: "smtp_alert_email", label: "SMTP alert email" },
+      { key: "slack_webhook_url", label: "Slack webhook", secret: true },
+      { key: "discord_webhook_url", label: "Discord webhook", secret: true },
+    ],
+  },
+  {
+    title: "🔐 Security",
+    rows: [
+      { key: "app_password", label: "App password", secret: true },
+      { key: "recovery_code", label: "Recovery code", secret: true },
+    ],
+  },
+];
+
+function OverviewTab({ settings }: { settings: Record<string, string> }) {
+  const [showSecrets, setShowSecrets] = useState(false);
+  const listedKeys = new Set(SETTING_GROUPS.flatMap(g => g.rows.map(r => r.key)));
+  const extraKeys = Object.keys(settings).filter(
+    k => !listedKeys.has(k) && settings[k]
+  );
+
+  const display = (key: string, secret?: boolean) => {
+    const v = settings[key];
+    if (!v) return "—";
+    if (secret && !showSecrets) return "•".repeat(Math.min(v.length, 12));
+    return v;
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button className="btn btn-secondary" onClick={() => setShowSecrets(!showSecrets)} style={{ fontSize: "0.75rem" }}>
+          {showSecrets ? "🙈 Hide sensitive values" : "👁️ Show sensitive values"}
+        </button>
+      </div>
+
+      {SETTING_GROUPS.map(group => (
+        <div key={group.title} className="card" style={{ padding: "1.25rem" }}>
+          <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.75rem" }}>{group.title}</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {group.rows.map(row => (
+                <tr key={row.key} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", fontSize: "0.8rem", fontWeight: 500, width: "45%" }}>{row.label}</td>
+                  <td style={{ padding: "0.5rem 0", fontSize: "0.8rem", color: "var(--muted)", wordBreak: "break-all" }}>{display(row.key, row.secret)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      {extraKeys.length > 0 && (
+        <div className="card" style={{ padding: "1.25rem" }}>
+          <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.75rem" }}>🔧 Other stored settings</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {extraKeys.map(key => (
+                <tr key={key} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", fontSize: "0.8rem", fontWeight: 500, width: "45%" }}>{key}</td>
+                  <td style={{ padding: "0.5rem 0", fontSize: "0.8rem", color: "var(--muted)", wordBreak: "break-all" }}>{settings[key]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [appUrl, setAppUrl] = useState("");
   const [confirmThreshold, setConfirmThreshold] = useState("1000");
@@ -18,7 +111,8 @@ export default function SettingsPage() {
   const [discordWebhook, setDiscordWebhook] = useState("");
   const [smtpAlertsEnabled, setSmtpAlertsEnabled] = useState(false);
   const [smtpAlertEmail, setSmtpAlertEmail] = useState("");
-  const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "about">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "overview" | "about">("general");
+  const [allSettings, setAllSettings] = useState<Record<string, string>>({});
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
   const [showSmtpForm, setShowSmtpForm] = useState(false);
@@ -41,6 +135,7 @@ export default function SettingsPage() {
       setDiscordWebhook(d.discord_webhook_url || "");
       setSmtpAlertsEnabled(d.smtp_alerts_enabled === "true");
       setSmtpAlertEmail(d.smtp_alert_email || "");
+      setAllSettings(d);
     });
   }, []);
 
@@ -162,6 +257,7 @@ export default function SettingsPage() {
     { id: "general" as const, label: "⚙️ General", },
     { id: "smtp" as const, label: "📧 SMTP", },
     { id: "blacklist" as const, label: "🚫 Blacklist", },
+    { id: "overview" as const, label: "📋 All Settings", },
     { id: "about" as const, label: "ℹ️ About", },
   ];
 
@@ -347,6 +443,10 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+      )}
+
+      {activeTab === "overview" && (
+        <OverviewTab settings={allSettings} />
       )}
 
       {activeTab === "about" && (
