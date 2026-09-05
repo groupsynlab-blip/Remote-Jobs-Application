@@ -7,9 +7,17 @@ import { getDb } from '@/lib/db';
  * GET /api/health — unauthenticated liveness endpoint.
  * Lets Railway healthchecks and uptime monitors verify the app is
  * serving without needing a session. Reports only non-sensitive
- * diagnostics: DB reachability/size and where the data dir lives
- * (used to verify volume mounts). No user data is exposed.
+ * diagnostics: app version, DB reachability/size, and whether a
+ * persistent volume is mounted at the data dir. No user data exposed.
  */
+let appVersion = 'unknown';
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+  appVersion = pkg.version || 'unknown';
+} catch {
+  // ignore
+}
+
 export async function GET() {
   let db: { ok: boolean; sizeBytes?: number; error?: string } = { ok: false };
   try {
@@ -41,28 +49,20 @@ export async function GET() {
   // a Railway volume mounted at /app/data appears there as its own entry.
   let mountCheck: {
     procMountsAvailable: boolean;
-    appMount: string | null;
     dataMount: string | null;
     volumeMounted: boolean;
-    allMounts: string[];
-  } = { procMountsAvailable: false, appMount: null, dataMount: null, volumeMounted: false, allMounts: [] };
+  } = { procMountsAvailable: false, dataMount: null, volumeMounted: false };
   try {
     if (fs.existsSync('/proc/mounts')) {
       mountCheck.procMountsAvailable = true;
       const lines = fs.readFileSync('/proc/mounts', 'utf8').split('\n');
       for (const line of lines) {
         const parts = line.split(/\s+/);
-        if (parts.length >= 3) {
-          if (parts[1] === '/app' && !mountCheck.appMount) mountCheck.appMount = `${parts[0]} ${parts[2]}`;
-          if (parts[1] === '/app/data') mountCheck.dataMount = `${parts[0]} ${parts[2]}`;
-          // List real mountpoints (skip kernel pseudo-filesystems) so a
-          // volume attached at an unexpected path can be located.
-          if (!['proc', 'sysfs', 'devpts', 'tmpfs', 'cgroup', 'cgroup2', 'mqueue', 'shm', 'devtmpfs', 'securityfs', 'debugfs', 'pstore', 'bpf', 'configfs', 'fusectl', 'hugetlbfs', 'tracefs', 'efivarfs', 'binfmt_misc', 'overlay', 'nsfs'].includes(parts[2]) && !parts[1].startsWith('/sys') && !parts[1].startsWith('/proc') && !parts[1].startsWith('/dev')) {
-            mountCheck.allMounts.push(`${parts[1]} (${parts[2]})`);
-          }
+        if (parts.length >= 3 && parts[1] === '/app/data') {
+          mountCheck.dataMount = `${parts[0]} ${parts[2]}`;
+          mountCheck.volumeMounted = true;
         }
       }
-      mountCheck.volumeMounted = mountCheck.dataMount !== null;
     }
   } catch {
     // /proc/mounts unavailable (non-Linux) — leave defaults
@@ -71,7 +71,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: 'bulk-emailer',
-    cwd,
+    version: appVersion,
     dataDir: dataDirInfo,
     mountCheck,
     db,
