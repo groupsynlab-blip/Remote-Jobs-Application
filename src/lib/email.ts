@@ -1,12 +1,13 @@
 import nodemailer from 'nodemailer';
+import type { Transporter, SendMailOptions } from 'nodemailer';
 import { getDb } from './db';
 import type { SmtpConfig, SmtpRateUsage } from './types';
 
 // ─── Transporter Cache ──────────────────────────────────────────
 
-const transporterCache = new Map<string, nodemailer.Transporter>();
+const transporterCache = new Map<string, Transporter>();
 
-export function createTransporter(config: SmtpConfig): nodemailer.Transporter {
+export function createTransporter(config: SmtpConfig): Transporter {
   const cacheKey = `${config.id}-${config.updated_at}`;
   const cached = transporterCache.get(cacheKey);
   if (cached) return cached;
@@ -335,7 +336,7 @@ export function buildMailOptions(
   contactName: string,
   contactEmail: string,
   trackingId?: string | null,
-): { mailOptions: nodemailer.SendMailOptions; unsubscribeUrl?: string } {
+): { mailOptions: SendMailOptions; unsubscribeUrl?: string } {
   const fromAddress = `"${smtpConfig.from_name}" <${smtpConfig.from_email}>`;
   const vars = { name: contactName || 'there', email: contactEmail };
 
@@ -377,7 +378,7 @@ export function buildMailOptions(
     }
   }
 
-  const mailOptions: nodemailer.SendMailOptions = {
+  const mailOptions: SendMailOptions = {
     from: fromAddress,
     to: contactEmail,
     subject: renderedSubject,
