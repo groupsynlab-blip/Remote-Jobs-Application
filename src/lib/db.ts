@@ -14,7 +14,14 @@ export function getDb(): Database.Database {
     }
 
     db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
+    // journal_mode=DELETE (rollback journal) instead of WAL: every commit
+    // is written directly into emailer.db and fsync'd, so the main file
+    // always contains all committed data. This matters on Railway, where
+    // container restarts between deploys previously lost WAL-only data.
+    db.pragma('journal_mode = DELETE');
+    db.pragma('synchronous = FULL');
+    // Migrate any existing WAL data into the main DB (from earlier WAL-mode runs)
+    try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch {}
     
     // Migration: add phone/address columns if missing
     try { db.exec("ALTER TABLE contacts ADD COLUMN phone TEXT DEFAULT ''"); } catch {}
