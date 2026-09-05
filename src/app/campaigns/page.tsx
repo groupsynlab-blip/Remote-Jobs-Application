@@ -129,7 +129,15 @@ export default function CampaignsPage() {
     }
   };
 
-  const resumeCampaign = async (id: string) => {
+  const resumeCampaign = async (id: string, queuedCount?: number) => {
+    // Safety prompt: confirm before resuming a large send
+    if (queuedCount !== undefined && queuedCount > 1000) {
+      const ok = window.confirm(
+        `This campaign has ${queuedCount.toLocaleString()} queued emails.\n\n` +
+        "Resuming will start sending them all. Continue?"
+      );
+      if (!ok) return;
+    }
     try {
       await fetch(`/api/campaigns/${id}`, {
         method: "PATCH",
@@ -142,7 +150,15 @@ export default function CampaignsPage() {
     }
   };
 
-  const retryFailed = async (id: string) => {
+  const retryFailed = async (id: string, retryCount?: number) => {
+    // Safety prompt: confirm before re-queuing a large batch
+    if (retryCount !== undefined && retryCount > 1000) {
+      const ok = window.confirm(
+        `This will re-queue ${retryCount.toLocaleString()} skipped/failed emails for sending.\n\n` +
+        "Sending will start automatically. Continue?"
+      );
+      if (!ok) return;
+    }
     try {
       const res = await fetch(`/api/campaigns/${id}`, {
         method: "PATCH",
@@ -151,7 +167,7 @@ export default function CampaignsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`${data.retried} failed emails queued for retry. Sending will start automatically.`);
+        alert(`${data.retried} skipped emails queued for retry. Sending will start automatically.`);
         loadData();
       } else {
         alert(data.error || "Failed to retry");
@@ -368,11 +384,11 @@ export default function CampaignsPage() {
                             <button className="btn btn-secondary" onClick={() => pauseCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(234,179,8,0.5)", color: "rgb(234,179,8)" }} >⏸ Pause</button>
                           )}
                           {c.status === 'paused' && (
-                            <button className="btn btn-primary" onClick={() => resumeCampaign(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >▶ Resume</button>
+                            <button className="btn btn-primary" onClick={() => resumeCampaign(c.id, c.log_queued || 0)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }} >▶ Resume</button>
                           )}
                           {((c.log_failed || 0) + (c.log_skipped || 0)) > 0 && c.status !== 'sending' && c.status !== 'queued' && (
                             <>
-                              <button className="btn btn-secondary" onClick={() => retryFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(251,191,36,0.5)", color: "rgb(251,191,36)" }} >🔄 Retry Skipped ({(c.log_skipped || 0) + (c.log_failed || 0)})</button>
+                              <button className="btn btn-secondary" onClick={() => retryFailed(c.id, (c.log_skipped || 0) + (c.log_failed || 0))} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(251,191,36,0.5)", color: "rgb(251,191,36)" }} >🔄 Retry Skipped ({(c.log_skipped || 0) + (c.log_failed || 0)})</button>
                               <button className="btn btn-secondary" onClick={() => exportFailed(c.id)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem", borderColor: "rgba(99,102,241,0.5)", color: "rgb(99,102,241)" }} >📥 Export CSV</button>
                             </>
                           )}

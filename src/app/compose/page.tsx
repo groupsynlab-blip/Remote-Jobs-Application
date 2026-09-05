@@ -303,6 +303,15 @@ export default function ComposePage() {
   };
 
   const resumeSending = async () => {
+    // Safety prompt: confirm before resuming a large send
+    const remaining = displayRemaining ?? 0;
+    if (remaining > 1000) {
+      const ok = window.confirm(
+        `This campaign has ${remaining.toLocaleString()} emails still queued.\n\n` +
+        "Resuming will start sending them all. Continue?"
+      );
+      if (!ok) return;
+    }
     try {
       await fetch("/api/scheduler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "resume" }) });
       setIsPaused(false);
