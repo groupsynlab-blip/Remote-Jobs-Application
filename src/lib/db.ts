@@ -421,6 +421,9 @@ function initializeDb(db: Database.Database) {
   if (!campaignCols.some(c => c.name === 'skipped_count')) {
     db.exec(`ALTER TABLE campaigns ADD COLUMN skipped_count INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!campaignCols.some(c => c.name === 'click_count')) {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN click_count INTEGER NOT NULL DEFAULT 0`);
+  }
   } catch (e: any) {
     console.error("[DB] Migration error:", e.message);
   }

@@ -3,9 +3,7 @@ import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { getClientIp, checkRateLimit, recordFailure, clearFailures, rateLimitResponse } from '@/lib/rate-limit';
 import { hashPassword, verifyPassword, validatePasswordStrength } from '@/lib/password';
-
-const SECRET = process.env.AUTH_SECRET || 'bulk-emailer-session-secret-2024';
-const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
+import { createSessionCookieValue, bumpSessionEpoch, verifySessionCookie } from '@/lib/session';
 
 function generateRecoveryCode(): string {
   const words = ['ALPHA','BRAVO','CHARLIE','DELTA','ECHO','FOXTROT','GOLF','HOTEL','INDIA','JULIET','KILO','LIMA','MIKE','NOVEMBER','OSCAR','PAPA','QUEBEC','ROMEO','SIERRA','TANGO','UNIFORM','VICTOR','WHISKY','XRAY','YANKEE','ZULU'];
@@ -28,16 +26,11 @@ async function sign(data: string, secret: string): Promise<string> {
     .join('');
 }
 
-function createSessionCookie() {
-  const payload = btoa(JSON.stringify({ auth: true, ts: Date.now(), exp: Date.now() + SESSION_DURATION }));
-  return sign(payload, SECRET).then((sig) => `${payload}.${sig}`);
-}
-
 function setSessionOnResponse(response: NextResponse, cookieValue: string) {
   response.cookies.set('app_session', cookieValue, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax', path: '/', maxAge: SESSION_DURATION / 1000,
+    sameSite: 'lax', path: '/', maxAge: 30 * 24 * 60 * 60,
   });
   return response;
 }
@@ -98,7 +91,7 @@ export async function POST(req: NextRequest) {
 
   clearFailures(ip);
 
-  const cookieValue = await createSessionCookie();
+  const cookieValue = await createSessionCookieValue();
   const response = NextResponse.json({
     success: true,
     ...(isFirstTime ? { recoveryCode: (db.prepare("SELECT value FROM settings WHERE key = 'recovery_code'").get() as { value: string })?.value } : {}),
@@ -107,13 +100,28 @@ export async function POST(req: NextRequest) {
   return response;
 }
 
-/** DELETE /api/auth — logout */
+/** DELETE /api/auth — logout (current device only) */
 export async function DELETE() {
   const response = NextResponse.json({ success: true });
   response.cookies.set('app_session', '', {
     httpOnly: true, secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax', path: '/', maxAge: 0,
   });
+  return response;
+}
+
+/** PATCH /api/auth — logout everywhere: invalidate ALL sessions via epoch bump.
+ *  Requires a valid current session (this endpoint is behind the auth proxy). */
+export async function PATCH(req: NextRequest) {
+  const session = req.cookies.get('app_session')?.value;
+  if (!session || !(await verifySessionCookie(session))) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+  const epoch = bumpSessionEpoch();
+  // Issue a fresh session for the current device so it stays logged in
+  const cookieValue = await createSessionCookieValue();
+  const response = NextResponse.json({ success: true, message: 'All other sessions have been logged out', epoch });
+  setSessionOnResponse(response, cookieValue);
   return response;
 }
 
@@ -154,7 +162,7 @@ export async function PUT(req: NextRequest) {
   const newRecoveryCode = generateRecoveryCode();
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('recovery_code', ?)").run(newRecoveryCode);
 
-  const cookieValue = await createSessionCookie();
+  const cookieValue = await createSessionCookieValue();
   const response = NextResponse.json({ success: true, message: 'Password updated', recoveryCode: newRecoveryCode });
   setSessionOnResponse(response, cookieValue);
   return response;

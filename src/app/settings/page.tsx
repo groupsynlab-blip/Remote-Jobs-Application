@@ -173,7 +173,7 @@ export default function SettingsPage() {
   const [discordWebhook, setDiscordWebhook] = useState("");
   const [smtpAlertsEnabled, setSmtpAlertsEnabled] = useState(false);
   const [smtpAlertEmail, setSmtpAlertEmail] = useState("");
-  const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "overview" | "about">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "smtp" | "blacklist" | "overview" | "about" | "security">("general");
   const [allSettings, setAllSettings] = useState<Record<string, string>>({});
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
@@ -211,6 +211,62 @@ export default function SettingsPage() {
     await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "smtp_alerts_enabled", value: String(smtpAlertsEnabled) }) });
     await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "smtp_alert_email", value: smtpAlertEmail }) });
     alert("Alert settings saved!");
+  };
+
+  // ── Security: change password ──
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [pwMessage, setPwMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [newRecoveryShown, setNewRecoveryShown] = useState("");
+
+  const pwScore = (() => {
+    let s = 0;
+    if (newPw.length >= 10) s++;
+    if (/[a-z]/.test(newPw) && /[A-Z]/.test(newPw)) s++;
+    if (/[0-9]/.test(newPw)) s++;
+    if (newPw.length >= 14 && /[^A-Za-z0-9]/.test(newPw)) s++;
+    return s;
+  })();
+  const pwValid = newPw.length >= 10 && /[a-z]/.test(newPw) && /[A-Z]/.test(newPw) && /[0-9]/.test(newPw) && newPw === confirmPw;
+
+  const changePassword = async () => {
+    if (!pwValid || pwBusy) return;
+    setPwBusy(true);
+    setPwMessage(null);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: currentPw, newPassword: newPw }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setPwMessage({ ok: true, text: "Password updated. Save your new recovery code below." });
+        setNewRecoveryShown(d.recoveryCode || "");
+        setCurrentPw(""); setNewPw(""); setConfirmPw("");
+      } else {
+        setPwMessage({ ok: false, text: d.error || "Password change failed" });
+      }
+    } catch {
+      setPwMessage({ ok: false, text: "Connection error" });
+    }
+    setPwBusy(false);
+  };
+
+  const logoutEverywhere = async () => {
+    if (!confirm("Log out all devices? Other browsers/devices will need the password to log in again. This device stays logged in.")) return;
+    try {
+      const res = await fetch("/api/auth", { method: "PATCH" });
+      if (res.ok) {
+        setPwMessage({ ok: true, text: "All other sessions have been logged out." });
+      } else {
+        setPwMessage({ ok: false, text: "Logout failed" });
+      }
+    } catch {
+      setPwMessage({ ok: false, text: "Connection error" });
+    }
   };
 
   const saveTrackingSettings = async () => {
@@ -320,6 +376,7 @@ export default function SettingsPage() {
     { id: "smtp" as const, label: "📧 SMTP", },
     { id: "blacklist" as const, label: "🚫 Blacklist", },
     { id: "overview" as const, label: "📋 All Settings", },
+    { id: "security" as const, label: "🔐 Security", },
     { id: "about" as const, label: "ℹ️ About", },
   ];
 
@@ -509,6 +566,72 @@ export default function SettingsPage() {
 
       {activeTab === "overview" && (
         <OverviewTab settings={allSettings} onSaved={(d) => setAllSettings(d)} />
+      )}
+
+      {activeTab === "security" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="card" style={{ padding: "1.25rem" }}>
+            <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.75rem" }}>🔑 Change Password</h3>
+            {pwMessage && (
+              <div style={{
+                padding: "0.6rem 0.75rem", borderRadius: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem",
+                background: pwMessage.ok ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+                border: `1px solid ${pwMessage.ok ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                color: pwMessage.ok ? "#22c55e" : "#ef4444",
+              }}>{pwMessage.ok ? "✅" : "❌"} {pwMessage.text}</div>
+            )}
+            {newRecoveryShown && (
+              <div style={{
+                padding: "0.75rem", borderRadius: "0.375rem", marginBottom: "0.75rem", textAlign: "center",
+                background: "rgba(15,23,42,0.05)", border: "2px dashed rgba(34,197,94,0.5)",
+              }}>
+                <div style={{ fontSize: "0.65rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem" }}>New Recovery Code — save it now</div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 700, fontFamily: "monospace", color: "#16a34a", letterSpacing: "0.08em" }}>{newRecoveryShown}</div>
+              </div>
+            )}
+            <div style={{ display: "grid", gap: "0.75rem", maxWidth: "360px" }}>
+              <div>
+                <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "0.25rem" }}>Current password</label>
+                <input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} style={{ width: "100%", padding: "0.5rem 0.65rem", fontSize: "0.85rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-primary)" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "0.25rem" }}>New password</label>
+                <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="10+ chars, upper & lowercase, number" style={{ width: "100%", padding: "0.5rem 0.65rem", fontSize: "0.85rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-primary)" }} />
+                {newPw && (
+                  <div style={{ display: "flex", gap: "0.2rem", marginTop: "0.35rem" }}>
+                    {[0, 1, 2, 3].map(i => (
+                      <div key={i} style={{ flex: 1, height: "3px", borderRadius: "2px", background: i < pwScore ? ["#ef4444", "#f97316", "#eab308", "#16a34a"][pwScore] : "var(--border)" }} />
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "0.25rem" }}>Confirm new password</label>
+                <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} style={{ width: "100%", padding: "0.5rem 0.65rem", fontSize: "0.85rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-primary)" }} />
+                {confirmPw && confirmPw !== newPw && (
+                  <div style={{ fontSize: "0.7rem", color: "#ef4444", marginTop: "0.25rem" }}>Passwords do not match</div>
+                )}
+              </div>
+              <button className="btn btn-primary" disabled={!pwValid || pwBusy} onClick={changePassword} style={{ opacity: !pwValid || pwBusy ? 0.6 : 1 }}>
+                {pwBusy ? "Updating…" : "Update Password"}
+              </button>
+              <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
+                Changing your password generates a new recovery code and keeps this device logged in. Passwords are hashed with salted scrypt.
+              </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: "1.25rem" }}>
+            <h3 style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.5rem" }}>🚪 Sessions</h3>
+            <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: "0.75rem", lineHeight: 1.5 }}>
+              Sessions last 30 days per device. If you left yourself logged in somewhere public,
+              use this to invalidate every session — all devices (except this one) will need the password again.
+            </p>
+            <button className="btn btn-secondary" onClick={logoutEverywhere} style={{ borderColor: "rgba(239,68,68,0.4)", color: "#ef4444", fontSize: "0.8rem" }}>
+              🚪 Log Out All Devices
+            </button>
+          </div>
+        </div>
       )}
 
       {activeTab === "about" && (
