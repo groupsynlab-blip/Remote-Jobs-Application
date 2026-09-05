@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { getClientIp, checkRateLimit, recordFailure, clearFailures, rateLimitResponse } from '@/lib/rate-limit';
 
 const SECRET = process.env.AUTH_SECRET || 'bulk-emailer-session-secret-2024';
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000;
@@ -27,6 +28,11 @@ async function sign(data: string, secret: string): Promise<string> {
 
 /** POST /api/auth/recover — reset password with recovery code */
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip).allowed) {
+    return rateLimitResponse(ip);
+  }
+
   const { recoveryCode, newPassword } = await req.json();
 
   if (!recoveryCode || !newPassword) {
@@ -45,8 +51,11 @@ export async function POST(req: NextRequest) {
 
   // Compare recovery code (case-insensitive, trimmed)
   if (recoveryCode.trim().toUpperCase() !== stored.value.trim().toUpperCase()) {
+    recordFailure(ip);
     return NextResponse.json({ error: 'Invalid recovery code' }, { status: 401 });
   }
+
+  clearFailures(ip);
 
   // Set new password
   const newHash = await hashPassword(newPassword);

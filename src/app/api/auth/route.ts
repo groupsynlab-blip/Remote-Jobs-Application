@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
+import { getClientIp, checkRateLimit, recordFailure, clearFailures, rateLimitResponse } from '@/lib/rate-limit';
 
 const SECRET = process.env.AUTH_SECRET || 'bulk-emailer-session-secret-2024';
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -42,6 +43,11 @@ function setSessionOnResponse(response: NextResponse, cookieValue: string) {
 
 /** POST /api/auth — login with password */
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip).allowed) {
+    return rateLimitResponse(ip);
+  }
+
   const body = await req.json();
   const { password } = body;
 
@@ -74,8 +80,11 @@ export async function POST(req: NextRequest) {
   // Verify password
   const inputHash = await hashPassword(password);
   if (inputHash !== stored.value) {
+    recordFailure(ip);
     return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
   }
+
+  clearFailures(ip);
 
   const cookieValue = await createSessionCookie();
   const response = NextResponse.json({
@@ -98,6 +107,11 @@ export async function DELETE() {
 
 /** PUT /api/auth — change password (requires current password) */
 export async function PUT(req: NextRequest) {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip).allowed) {
+    return rateLimitResponse(ip);
+  }
+
   const { currentPassword, newPassword } = await req.json();
 
   if (!currentPassword || !newPassword) {
@@ -113,8 +127,11 @@ export async function PUT(req: NextRequest) {
 
   const currentHash = await hashPassword(currentPassword);
   if (currentHash !== stored.value) {
+    recordFailure(ip);
     return NextResponse.json({ error: 'Current password is incorrect' }, { status: 401 });
   }
+
+  clearFailures(ip);
 
   const newHash = await hashPassword(newPassword);
   db.prepare("UPDATE settings SET value = ? WHERE key = 'app_password'").run(newHash);
