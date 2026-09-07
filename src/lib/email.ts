@@ -17,6 +17,12 @@ export function createTransporter(config: SmtpConfig): Transporter {
     port: config.port,
     secure: Boolean(config.secure),
     auth: { user: config.user, pass: config.pass },
+    // Fail fast when the host blocks outbound SMTP (e.g. Railway blocks
+    // ports 465/587). Without these, a blocked TCP connect hangs forever
+    // and stalls the whole campaign stream.
+    connectionTimeout: 10_000,  // TCP connect + STARTTLS
+    greetingTimeout: 10_000,    // wait for server banner
+    socketTimeout: 20_000,      // idle socket between commands
   });
 
   transporterCache.set(cacheKey, transport);

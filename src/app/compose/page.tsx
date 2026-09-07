@@ -186,6 +186,12 @@ export default function ComposePage() {
   // ─── SMTP Quota Tracker ──────────────────────────────────────
   const [smtpQuotas, setSmtpQuotas] = useState<{ id: string; name: string; enabled: boolean; hourly_limit: number; daily_limit: number; hourly_used: number; daily_used: number }[]>([]);
 
+  // Platform warning: Railway blocks outbound SMTP (ports 465/587)
+  const [platform, setPlatform] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/health").then((r) => r.json()).then((d) => setPlatform(d.platform || null)).catch(() => {});
+  }, []);
+
   // ─── Connectivity Monitoring ──────────────────────────────────
   useEffect(() => {
     const handleOnline = () => {
@@ -762,6 +768,24 @@ export default function ComposePage() {
           Create and send a bulk email campaign
         </p>
       </div>
+
+      {/* Railway SMTP block warning */}
+      {platform === "railway" && (
+        <div
+          className="card"
+          style={{
+            marginBottom: "1rem",
+            background: "rgba(245, 158, 11, 0.08)",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+            padding: "0.875rem 1rem",
+          }}
+        >
+          <strong style={{ color: "#b45309" }}>⚠️ Cloud hosting detected - SMTP sending is blocked here</strong>
+          <p style={{ margin: "0.35rem 0 0", fontSize: "0.875rem", lineHeight: 1.5 }}>
+            Railway blocks outbound SMTP (ports 465/587), so campaigns cannot send from this deployment - sends fail with connection timeouts. Run campaigns from your <strong>local app</strong> (full SMTP capacity), or switch to an email API provider such as Resend that works over HTTPS.
+          </p>
+        </div>
+      )}
 
       {/* ─── Active Campaign Banner ─────────────────────── */}
       {activeCampaign && !sendLoopActive && !showCampaignDetail && (

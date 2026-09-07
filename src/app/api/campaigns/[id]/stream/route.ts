@@ -129,6 +129,8 @@ export async function GET(
         let totalSkipped = 0;
         let emailsSinceStatusCheck = 0;
         const delayMs = (campaign.delay_seconds || 2) * 1000;
+        let consecutiveNetworkFailures = 0;
+        let pausedDueToNetwork = false;
 
         while (!closed) {
           // Check if campaign was paused externally (e.g. from Campaigns page)
@@ -247,6 +249,7 @@ export async function GET(
                 recordSmtpSend(retrySmtp.id);
                 totalSent++;
                 emailSent = true;
+                consecutiveNetworkFailures = 0;
                 send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'sent', server: retrySmtp.name });
                 // Update SMTP quota after each send
                 {
@@ -264,10 +267,33 @@ export async function GET(
                 }
               } catch (error: any) {
                 lastError = error.message;
+                const errText = `${error.code || ''} ${error.message || ''}`;
+                const isNetworkError = /ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN|ENOTFOUND|Connection timeout|Greeting|Socket timeout/i.test(errText);
+                if (isNetworkError) {
+                  // Network-level failure (e.g. host blocks outbound SMTP).
+                  // Other SMTP accounts share the same host/port, so trying
+                  // them all just burns time. The block detection below
+                  // pauses the campaign with a clear message instead.
+                  consecutiveNetworkFailures++;
+                  break;
+                }
+                // Non-network error (e.g. auth): SMTP connectivity itself works
+                consecutiveNetworkFailures = 0;
                 if (retryAttempt < smtpConfigs.length - 1) {
                   send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'retrying', error: `${retrySmtp.name} failed, trying next SMTP...` });
                 }
               }
+            }
+
+            // Outbound SMTP appears network-blocked: auto-pause with a
+            // clear message and leave the remaining emails queued.
+            if (!emailSent && consecutiveNetworkFailures >= 3) {
+              pausedDueToNetwork = true;
+              db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ?").run(id);
+              send({ type: 'error', message: 'SMTP connections are timing out - outbound SMTP (ports 465/587) appears blocked on this host. Railway blocks these ports, so campaigns cannot send from the cloud. Campaign paused; emails stay queued. Run this campaign from your local app instead, or use an email API provider (e.g. Resend).' });
+              const blockedRemaining = (db.prepare("SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'").get(id) as any).count;
+              send({ type: 'paused', sent: totalSent, failed: totalFailed, remaining: blockedRemaining });
+              break;
             }
 
             // All SMTPs failed for this email — mark as skipped so it can be retried later
@@ -282,6 +308,8 @@ export async function GET(
               await new Promise(resolve => setTimeout(resolve, delayMs));
             }
           }
+
+          if (pausedDueToNetwork) break;
         }
 
         db.prepare('UPDATE campaigns SET sent_count = sent_count + ?, failed_count = failed_count + ?, skipped_count = COALESCE(skipped_count, 0) + ? WHERE id = ?')
@@ -295,7 +323,9 @@ export async function GET(
           db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ?").run(id);
         }
 
-        send({ type: 'done', sent: totalSent, failed: totalFailed, skipped: totalSkipped, total, remaining: remaining.count });
+        if (!pausedDueToNetwork) {
+          send({ type: 'done', sent: totalSent, failed: totalFailed, skipped: totalSkipped, total, remaining: remaining.count });
+        }
       } catch (error: any) {
         console.error('[Stream] Error:', error.message);
         send({ type: 'error', message: error.message || 'Unknown error' });

@@ -72,6 +72,7 @@ export async function GET() {
     ok: true,
     service: 'bulk-emailer',
     version: appVersion,
+    platform: process.env.RAILWAY_ENVIRONMENT ? 'railway' : 'local',
     dataDir: dataDirInfo,
     mountCheck,
     db,
