@@ -65,12 +65,15 @@ export interface EmailOpen {
   ip_address: string | null;
 }
 
+export type SMTPSecurity = 'starttls' | 'ssl' | 'auto';
+
 export interface SmtpConfig {
   id: string;
   name: string;
   host: string;
   port: number;
   secure: number;
+  security: SMTPSecurity | null; // explicit mode; null = infer from legacy secure flag
   user: string;
   pass: string;
   from_name: string;

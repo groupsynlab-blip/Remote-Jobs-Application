@@ -7,15 +7,44 @@ import type { SmtpConfig, SmtpRateUsage } from './types';
 
 const transporterCache = new Map<string, Transporter>();
 
-export function createTransporter(config: SmtpConfig): Transporter {
-  const cacheKey = `${config.id}-${config.updated_at}`;
-  const cached = transporterCache.get(cacheKey);
-  if (cached) return cached;
+/**
+ * Resolve the effective connection security for an SMTP config.
+ * - 'ssl'      → implicit TLS on connect (secure: true, usually port 465)
+ * - 'starttls' → plain connection, mandatory upgrade via STARTTLS (requireTLS)
+ * - 'auto'     → port-based heuristic: 465 → implicit SSL, otherwise STARTTLS
+ *                with opportunistic upgrade (upgrades when the server offers it)
+ * - null/undefined → legacy: infer from the old boolean secure flag
+ */
+export function resolveSmtpSecurity(config: SmtpConfig): {
+  secure: boolean;
+  requireTLS?: boolean;
+} {
+  const mode = config.security;
+  if (mode === 'ssl') return { secure: true };
+  if (mode === 'starttls') return { secure: false, requireTLS: true };
+  if (mode === 'auto') {
+    // Port 465 speaks implicit TLS from the first byte; every other port
+    // (587, 25, 2525…) expects STARTTLS after the banner.
+    return config.port === 465 ? { secure: true } : { secure: false };
+  }
+  // Legacy fallback: no explicit mode stored
+  return config.secure === 1 ? { secure: true } : { secure: false };
+}
 
-  const transport = nodemailer.createTransport({
+export type SmtpTransportOptions = Parameters<typeof nodemailer.createTransport>[0];
+
+/**
+ * Build the exact SMTP transport options used for real sends. Shared by
+ * createTransporter and the /api/smtp/test endpoint so a connection test
+ * reflects real campaign behavior.
+ */
+export function buildSmtpTransportOptions(config: SmtpConfig): SmtpTransportOptions {
+  const sec = resolveSmtpSecurity(config);
+  return {
     host: config.host,
     port: config.port,
-    secure: Boolean(config.secure),
+    secure: sec.secure,
+    ...(sec.requireTLS ? { requireTLS: true } : {}),
     auth: { user: config.user, pass: config.pass },
     // Fail fast when the host blocks outbound SMTP (e.g. Railway blocks
     // ports 465/587). Without these, a blocked TCP connect hangs forever
@@ -23,7 +52,15 @@ export function createTransporter(config: SmtpConfig): Transporter {
     connectionTimeout: 10_000,  // TCP connect + STARTTLS
     greetingTimeout: 10_000,    // wait for server banner
     socketTimeout: 20_000,      // idle socket between commands
-  });
+  };
+}
+
+export function createTransporter(config: SmtpConfig): Transporter {
+  const cacheKey = `${config.id}-${config.updated_at}`;
+  const cached = transporterCache.get(cacheKey);
+  if (cached) return cached;
+
+  const transport = nodemailer.createTransport(buildSmtpTransportOptions(config));
 
   transporterCache.set(cacheKey, transport);
   return transport;

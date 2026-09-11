@@ -26,6 +26,9 @@ export function getDb(): Database.Database {
     // Migration: add phone/address columns if missing
     try { db.exec("ALTER TABLE contacts ADD COLUMN phone TEXT DEFAULT ''"); } catch {}
     try { db.exec("ALTER TABLE contacts ADD COLUMN address TEXT DEFAULT ''"); } catch {}
+    // Migration: add company/title columns if missing (used by CSV import)
+    try { db.exec("ALTER TABLE contacts ADD COLUMN company TEXT DEFAULT ''"); } catch {}
+    try { db.exec("ALTER TABLE contacts ADD COLUMN title TEXT DEFAULT ''"); } catch {}
     db.pragma('foreign_keys = ON');
     initializeDb(db);
   }
@@ -48,6 +51,8 @@ function initializeDb(db: Database.Database) {
       name TEXT NOT NULL DEFAULT '',
       phone TEXT DEFAULT '',
       address TEXT DEFAULT '',
+      company TEXT DEFAULT '',
+      title TEXT DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -177,6 +182,7 @@ function initializeDb(db: Database.Database) {
       host TEXT NOT NULL DEFAULT '',
       port INTEGER NOT NULL DEFAULT 587,
       secure INTEGER NOT NULL DEFAULT 0,
+      security TEXT DEFAULT NULL,
       user TEXT NOT NULL DEFAULT '',
       pass TEXT NOT NULL DEFAULT '',
       from_name TEXT NOT NULL DEFAULT '',
@@ -458,6 +464,18 @@ function initializeDb(db: Database.Database) {
       'Hi {{name}},\nI was told you might be interested in remote earning opportunities. We have an opening at Synlab Group for receivable agents and it seems like it could be a good match for someone with your skills.\nIt is entirely commission-based - you earn from every transaction you process. A lot of flexibility in how and when you work.\nLet me know if you want to hear more about it.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493');
     insertTemplate.run('tpl5', 'Synlab - Short & Sweet', 'Quick opportunity for you',
       'Hi {{name}},\nReceivable agent role at Synlab Group - fully remote, commission-based, flexible hours.\nInterested? Happy to share details.\nBest Regards,\nPierre Fischer\nTel: (850) 981-4493');
+
+    // Confidential investment proposal variations (varied openers + subjects)
+    // First-line order is intentionally shuffled across variants so the sequence
+    // does not read as one template repeated four times.
+    insertTemplate.run('tpl6', 'Confidential Proposal - Direct', 'A proposal I think suits us both',
+      'Hi,\nI am reaching out because I have been developing a confidential investment proposal that I believe could be mutually beneficial.\nI am sharing it only with a small number of people at this stage, and I wanted to see if it is something you would be open to hearing more about.\nIf it is of interest, I am happy to provide additional details for your consideration.\nI look forward to hearing from you and wish you a productive day.\nBest,\nC Snyman.');
+    insertTemplate.run('tpl7', 'Confidential Proposal - Short', 'Something worth a quick look',
+      'Hello,\nI hope you are doing well.\nI have put together an investment proposal I have been developing, and I believe it could present a good opportunity for us both.\nIf the idea sounds interesting, I would be glad to share more information and discuss it further.\nEither way, thank you for your time and I wish you a pleasant day.\nRegards,\nC Snyman.');
+    insertTemplate.run('tpl8', 'Confidential Proposal - Conversational', 'A confidential opportunity I wanted to share',
+      'Hi there,\nI hope this finds you well.\nI am contacting you to share a confidential investment proposal I have been working on. From what I have seen so far, I think it could be worthwhile for both sides.\nIf you are interested, just let me know and I will send over the full details.\nThanks for considering it, and I hope you have a productive day.\nThanks,\nC Snyman.');
+    insertTemplate.run('tpl9', 'Confidential Proposal - Concise', 'Confidential investment idea',
+      'Greetings,\nI am reaching out about a confidential investment proposal I have been developing.\nI believe it could be a mutually beneficial opportunity, and I would be happy to provide more information if it is of interest.\nPlease let me know if you would like me to share the details.\nI look forward to your reply and wish you all the best.\nAll the best,\nC Snyman.');
   }
 
   // Migration: replace old HTML templates with plain text versions
@@ -497,6 +515,17 @@ function initializeDb(db: Database.Database) {
     }
   } catch (e: any) {
     console.error("[DB] campaigns migration error:", e.message);
+  }
+
+  // Migration: add security column to smtp_config (STARTTLS / SSL / Auto)
+  try {
+    const smtpCols = db.prepare("PRAGMA table_info(smtp_config)").all() as { name: string }[];
+    if (!smtpCols.some(c => c.name === 'security')) {
+      db.exec(`ALTER TABLE smtp_config ADD COLUMN security TEXT DEFAULT NULL`);
+      console.log('[DB] Added security column to smtp_config');
+    }
+  } catch (e: any) {
+    console.error("[DB] smtp_config security migration error:", e.message);
   }
 
   // Fix campaigns table PRIMARY KEY if missing (causes foreign key errors with email_logs)

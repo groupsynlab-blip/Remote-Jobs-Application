@@ -178,7 +178,7 @@ export default function SettingsPage() {
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
   const [showSmtpForm, setShowSmtpForm] = useState(false);
-  const [smtpForm, setSmtpForm] = useState({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true });
+  const [smtpForm, setSmtpForm] = useState({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, security: "auto", enabled: true });
 
   useEffect(() => {
     fetch("/api/settings").then(r => r.json()).then(d => {
@@ -288,6 +288,36 @@ export default function SettingsPage() {
   };
 
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const testConnection = async () => {
+    if (testing) return;
+    if (!smtpForm.host || !smtpForm.user || !smtpForm.pass) {
+      setTestResult({ ok: false, text: "Fill in Host, Username, and Password first" });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      // Editing a saved config? Test the stored values (incl. stored password);
+      // otherwise test the form values as-is.
+      const payload = editingSmtp && (!smtpForm.pass || smtpForm.pass === "********")
+        ? { id: editingSmtp.id }
+        : smtpForm;
+      const res = await fetch("/api/smtp/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json();
+      setTestResult({ ok: !!d.success, text: d.success ? d.message : d.error });
+    } catch {
+      setTestResult({ ok: false, text: "Connection error — is the app running?" });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const saveSmtp = async () => {
     if (!smtpForm.name || !smtpForm.user || !smtpForm.pass) {
@@ -306,7 +336,7 @@ export default function SettingsPage() {
       }
       setEditingSmtp(null);
       setShowSmtpForm(false);
-      setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true });
+      setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, security: "auto", enabled: true });
       await fetchSmtpConfigs();
     } catch (e: any) {
       alert("Error saving SMTP: " + e.message);
@@ -329,7 +359,8 @@ export default function SettingsPage() {
   const editSmtp = (config: any) => {
     setEditingSmtp(config);
     setShowSmtpForm(true);
-    setSmtpForm({ name: config.name || "", host: config.host || "smtp.gmail.com", port: config.port || 587, user: config.user || "", pass: config.pass || "", from_name: config.from_name || "", from_email: config.from_email || "", daily_limit: config.daily_limit || 500, hourly_limit: config.hourly_limit || 100, secure: Boolean(config.secure), enabled: Boolean(config.enabled) });
+    setTestResult(null);
+    setSmtpForm({ name: config.name || "", host: config.host || "smtp.gmail.com", port: config.port || 587, user: config.user || "", pass: config.pass || "", from_name: config.from_name || "", from_email: config.from_email || "", daily_limit: config.daily_limit || 500, hourly_limit: config.hourly_limit || 100, secure: Boolean(config.secure), security: config.security || (config.secure ? "ssl" : "auto"), enabled: Boolean(config.enabled) });
   };
 
   const fetchBlacklist = () => {
@@ -474,7 +505,7 @@ export default function SettingsPage() {
         <div className="card" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ fontWeight: 600 }}>SMTP Configurations</h3>
-            <button className="btn btn-primary" onClick={() => { setEditingSmtp(null); setShowSmtpForm(true); setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, enabled: true }); }}>+ Add SMTP</button>
+            <button className="btn btn-primary" onClick={() => { setEditingSmtp(null); setShowSmtpForm(true); setTestResult(null); setSmtpForm({ name: "", host: "smtp.gmail.com", port: 587, user: "", pass: "", from_name: "", from_email: "", daily_limit: 500, hourly_limit: 100, secure: false, security: "auto", enabled: true }); }}>+ Add SMTP</button>
           </div>
 
           {/* SMTP Form */}
@@ -485,6 +516,28 @@ export default function SettingsPage() {
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Name</label><input className="input" value={smtpForm.name} onChange={e => setSmtpForm({...smtpForm, name: e.target.value})} placeholder="Gmail SMTP" /></div>
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Host</label><input className="input" value={smtpForm.host} onChange={e => setSmtpForm({...smtpForm, host: e.target.value})} /></div>
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Port</label><input className="input" type="number" value={smtpForm.port} onChange={e => setSmtpForm({...smtpForm, port: Number(e.target.value)})} /></div>
+                <div>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Connection Security</label>
+                  <select
+                    className="input"
+                    value={smtpForm.security}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setSmtpForm(f => {
+                        // Sensible default ports per mode (only auto-adjust when untouched)
+                        const port = v === "ssl" && f.port === 587 ? 465 : v === "starttls" && f.port === 465 ? 587 : f.port;
+                        return { ...f, security: v, port };
+                      });
+                    }}
+                  >
+                    <option value="auto">Auto (recommended)</option>
+                    <option value="starttls">STARTTLS (port 587)</option>
+                    <option value="ssl">SSL/TLS (port 465)</option>
+                  </select>
+                  <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+                    Auto: SSL on port 465, STARTTLS otherwise. STARTTLS: connect plain, upgrade to TLS. SSL: encrypted from the start.
+                  </p>
+                </div>
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Username</label><input className="input" value={smtpForm.user} onChange={e => setSmtpForm({...smtpForm, user: e.target.value})} /></div>
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Password</label><input className="input" type="password" value={smtpForm.pass} onChange={e => setSmtpForm({...smtpForm, pass: e.target.value})} /></div>
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>From Name</label><input className="input" value={smtpForm.from_name} onChange={e => setSmtpForm({...smtpForm, from_name: e.target.value})} placeholder="Bulk Emailer" /></div>
@@ -492,9 +545,28 @@ export default function SettingsPage() {
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Daily Limit</label><input className="input" type="number" value={smtpForm.daily_limit} onChange={e => setSmtpForm({...smtpForm, daily_limit: Number(e.target.value)})} /></div>
                 <div><label style={{ fontSize: "0.7rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Hourly Limit</label><input className="input" type="number" value={smtpForm.hourly_limit} onChange={e => setSmtpForm({...smtpForm, hourly_limit: Number(e.target.value)})} /></div>
               </div>
+              {testResult && (
+                <div style={{
+                  marginTop: "0.75rem", padding: "0.6rem 0.75rem", borderRadius: "0.375rem", fontSize: "0.8rem",
+                  background: testResult.ok ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+                  border: `1px solid ${testResult.ok ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                  color: testResult.ok ? "#16a34a" : "#ef4444",
+                  wordBreak: "break-word",
+                }}>
+                  {testResult.ok ? "✅" : "❌"} {testResult.text}
+                </div>
+              )}
               <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
                 <button className="btn btn-primary" onClick={saveSmtp} disabled={saving}>{saving ? "Saving..." : editingSmtp ? "Update" : "Save"}</button>
-                <button className="btn btn-secondary" onClick={() => { setEditingSmtp(null); setShowSmtpForm(false); }}>Cancel</button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={testConnection}
+                  disabled={testing}
+                  title="Connect to the server using the selected security mode — sends no email"
+                >
+                  {testing ? "🔌 Testing…" : "🔌 Test Connection"}
+                </button>
+                <button className="btn btn-secondary" onClick={() => { setEditingSmtp(null); setShowSmtpForm(false); setTestResult(null); }}>Cancel</button>
               </div>
             </div>
           ) : null}

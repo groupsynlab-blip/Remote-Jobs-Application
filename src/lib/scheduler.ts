@@ -347,8 +347,16 @@ async function sendBatch(
   const enableTracking = campaign.enable_tracking === 1;
   const enableUnsubscribe = campaign.enable_unsubscribe === 1;
 
-  // Get SMTP configs
-  const smtpConfigs = getEnabledSmtpConfigs();
+  // Get SMTP configs, filtered by campaign's selected_smtp_ids when a selection exists
+  let smtpConfigs = getEnabledSmtpConfigs();
+  if (campaign.selected_smtp_ids) {
+    try {
+      const selectedIds: string[] = JSON.parse(campaign.selected_smtp_ids);
+      if (selectedIds.length > 0) {
+        smtpConfigs = smtpConfigs.filter((c) => selectedIds.includes(c.id));
+      }
+    } catch {}
+  }
   if (smtpConfigs.length === 0) {
     return { sent: 0, failed: 0, skipped: 0, remaining: 0, done: false };
   }

@@ -79,23 +79,21 @@ export async function POST(request: NextRequest) {
       db.prepare('INSERT INTO contact_lists (id, name) VALUES (?, ?)').run(listId, finalListName);
     }
 
-    const insertContact = db.prepare(`
-      INSERT INTO contacts (id, email, name, phone, company, title) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(email) DO UPDATE SET
-        name = CASE WHEN excluded.name != '' THEN excluded.name ELSE contacts.name END,
-        phone = CASE WHEN excluded.phone != '' THEN excluded.phone ELSE contacts.phone END,
-        company = CASE WHEN excluded.company != '' THEN excluded.company ELSE contacts.company END,
-        title = CASE WHEN excluded.title != '' THEN excluded.title ELSE contacts.title END
-    `);
+    // Use SELECT to discover which optional columns actually exist on this DB,
+    // so the import still works on older schemas that predate company/title.
+    const contactColumns = db.prepare("PRAGMA table_info(contacts)").all() as { name: string }[];
+    const hasCol = (name: string) => contactColumns.some(c => c.name === name);
 
-    const updateContact = db.prepare(`
-      UPDATE contacts SET
-        name = CASE WHEN ? != '' THEN ? ELSE name END,
-        phone = CASE WHEN ? != '' THEN ? ELSE phone END,
-        company = CASE WHEN ? != '' THEN ? ELSE company END,
-        title = CASE WHEN ? != '' THEN ? ELSE title END
-      WHERE email = ?
-    `);
+    const insertContact = db.prepare(
+      `INSERT INTO contacts (id, email, name${hasCol('phone') ? ', phone' : ''}${hasCol('company') ? ', company' : ''}${hasCol('title') ? ', title' : ''})
+       VALUES (?, ?, ?${hasCol('phone') ? ', ?' : ''}${hasCol('company') ? ', ?' : ''}${hasCol('title') ? ', ?' : ''})`
+    );
+
+    const updateContact = db.prepare(
+      `UPDATE contacts SET
+        name = CASE WHEN ? != '' THEN ? ELSE name END${hasCol('phone') ? `,\n        phone = CASE WHEN ? != '' THEN ? ELSE phone END` : ''}${hasCol('company') ? `,\n        company = CASE WHEN ? != '' THEN ? ELSE company END` : ''}${hasCol('title') ? `,\n        title = CASE WHEN ? != '' THEN ? ELSE title END` : ''}
+      WHERE email = ?`
+    );
 
     const getContactId = db.prepare('SELECT id FROM contacts WHERE email = ?');
     const insertMember = db.prepare(
@@ -115,20 +113,23 @@ export async function POST(request: NextRequest) {
             insertMember.run(listId, existing.id);
             continue;
           } else if (duplicateAction === 'update') {
-            updateContact.run(
-              contact.name, contact.name,
-              contact.phone, contact.phone,
-              contact.company, contact.company,
-              contact.title, contact.title,
-              contact.email
-            );
+            const updateArgs: any[] = [contact.name, contact.name];
+            if (hasCol('phone')) updateArgs.push(contact.phone, contact.phone);
+            if (hasCol('company')) updateArgs.push(contact.company, contact.company);
+            if (hasCol('title')) updateArgs.push(contact.title, contact.title);
+            updateArgs.push(contact.email);
+            updateContact.run(...updateArgs);
             updated++;
             insertMember.run(listId, existing.id);
             continue;
           }
         }
         const id = uuidv4();
-        insertContact.run(id, contact.email, contact.name, contact.phone, contact.company, contact.title);
+        const insertArgs: any[] = [id, contact.email, contact.name];
+        if (hasCol('phone')) insertArgs.push(contact.phone);
+        if (hasCol('company')) insertArgs.push(contact.company);
+        if (hasCol('title')) insertArgs.push(contact.title);
+        insertContact.run(...insertArgs);
         const contactRow = getContactId.get(contact.email) as { id: string } | undefined;
         if (contactRow) {
           insertMember.run(listId, contactRow.id);
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true, listId, listName: finalListName,
       imported, updated, skipped, total: uniqueContacts.length,
+      columns: { hasCompany: hasCol('company'), hasTitle: hasCol('title'), hasPhone: hasCol('phone'), hasAddress: hasCol('address') },
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to import contacts' }, { status: 500 });

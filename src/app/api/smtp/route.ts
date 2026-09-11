@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { getAllSmtpRateUsage, cleanupRateTracking } from '@/lib/email';
-import type { SmtpConfig } from '@/lib/types';
+import type { SmtpConfig, SMTPSecurity } from '@/lib/types';
+
+const VALID_SECURITY: SMTPSecurity[] = ['starttls', 'ssl', 'auto'];
+
+/** Normalize the incoming security value; undefined/null → legacy secure flag. */
+function normalizeSecurity(body: any): SMTPSecurity | null {
+  if (body.security && VALID_SECURITY.includes(body.security)) {
+    return body.security as SMTPSecurity;
+  }
+  return null;
+}
 
 // GET /api/smtp - Get all SMTP configs with rate usage
 export async function GET() {
@@ -29,15 +39,21 @@ export async function POST(request: NextRequest) {
     const db = getDb();
     const id = uuidv4();
 
+    const security = normalizeSecurity(body);
+    // Legacy `secure` flag: keep in sync for older code paths. An explicit
+    // 'ssl' mode implies secure=1; starttls/auto derive it in resolveSmtpSecurity.
+    const legacySecure = security === 'ssl' ? 1 : security === 'starttls' ? 0 : body.secure ? 1 : 0;
+
     db.prepare(`
-      INSERT INTO smtp_config (id, name, host, port, secure, user, pass, from_name, from_email, enabled, daily_limit, hourly_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO smtp_config (id, name, host, port, secure, security, user, pass, from_name, from_email, enabled, daily_limit, hourly_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       body.name || '',
       body.host,
       body.port || 587,
-      body.secure ? 1 : 0,
+      legacySecure,
+      security,
       body.user,
       body.pass,
       body.from_name,
@@ -62,12 +78,16 @@ export async function PUT(request: NextRequest) {
     }
     const db = getDb();
 
+    const security = normalizeSecurity(body);
+    const legacySecure = security === 'ssl' ? 1 : security === 'starttls' ? 0 : body.secure ? 1 : 0;
+
     db.prepare(`
       UPDATE smtp_config SET
         name = ?,
         host = ?,
         port = ?,
         secure = ?,
+        security = ?,
         user = ?,
         pass = ?,
         from_name = ?,
@@ -81,7 +101,8 @@ export async function PUT(request: NextRequest) {
       body.name || '',
       body.host,
       body.port || 587,
-      body.secure ? 1 : 0,
+      legacySecure,
+      security,
       body.user,
       body.pass,
       body.from_name,

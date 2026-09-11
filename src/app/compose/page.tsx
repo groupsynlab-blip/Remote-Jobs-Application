@@ -153,13 +153,15 @@ export default function ComposePage() {
   const [activeCampaign, setActiveCampaign] = useState<any>(null);
   const [showCampaignDetail, setShowCampaignDetail] = useState(false);
 
-  // ─── In-progress edit state (template/subject changes while paused) ──
+  // ─── In-progress edit state (template/subject/SMTP changes while paused) ──
   const [editingInCampaign, setEditingInCampaign] = useState(false);
   const [editTemplateId, setEditTemplateId] = useState("");
   const [editUseRotation, setEditUseRotation] = useState(false);
   const [editSelectedTemplateIds, setEditSelectedTemplateIds] = useState<string[]>([]);
   const [editUseSubjectRotation, setEditUseSubjectRotation] = useState(false);
   const [editSubjects, setEditSubjects] = useState<string[]>([""]);
+  const [editSelectedSmtpIds, setEditSelectedSmtpIds] = useState<string[]>([]);
+  const [editShowSmtpSection, setEditShowSmtpSection] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const autoPausedRef = useRef(false);
@@ -384,6 +386,13 @@ export default function ComposePage() {
       setEditUseSubjectRotation(subs.length > 1);
       setEditSubjects(subs.length > 1 ? subs : [""]);
 
+      // SMTP selection — default to campaign's stored selection, else all enabled SMTPs
+      let smtpIds: string[] = [];
+      if (c.selected_smtp_ids) {
+        try { smtpIds = JSON.parse(c.selected_smtp_ids); } catch { smtpIds = []; }
+      }
+      setEditSelectedSmtpIds(smtpIds.length > 0 ? smtpIds : smtpConfigs.map((s: any) => s.id));
+
       setEditingInCampaign(true);
     } catch (err) {
       console.error("Failed to load campaign for editing:", err);
@@ -414,6 +423,13 @@ export default function ComposePage() {
         body.subject_rotation = activeSubs.length > 1 ? activeSubs : null;
       } else {
         body.subject_rotation = null;
+      }
+
+      // SMTP selection
+      if (editSelectedSmtpIds.length > 0) {
+        body.selected_smtp_ids = editSelectedSmtpIds;
+      } else {
+        body.selected_smtp_ids = null;
       }
 
       const res = await fetch(`/api/campaigns/${campaignId}`, {
@@ -1086,6 +1102,90 @@ export default function ComposePage() {
                     border: "1px dashed var(--border)", background: "transparent",
                     color: "var(--accent)", cursor: "pointer", fontSize: "0.75rem",
                   }}>+ Add Subject Variation</button>
+              </div>
+            )}
+          </div>
+
+          {/* SMTP Selection */}
+          <div style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <label style={{ fontSize: "0.8rem", fontWeight: 500 }}>SMTP Accounts</label>
+              <button
+                type="button"
+                onClick={() => setEditShowSmtpSection(!editShowSmtpSection)}
+                style={{
+                  padding: "0.2rem 0.6rem", borderRadius: "1rem", border: "none",
+                  fontSize: "0.7rem", fontWeight: 600, cursor: "pointer",
+                  background: editShowSmtpSection ? "var(--accent)" : "var(--border)",
+                  color: editShowSmtpSection ? "#fff" : "var(--muted)", transition: "all 0.2s",
+                }}
+              >
+                {editShowSmtpSection ? "ON" : "OFF"}
+              </button>
+            </div>
+            {editShowSmtpSection && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <p style={{ fontSize: "0.75rem", color: "var(--muted)", margin: 0 }}>
+                  Choose which SMTP accounts resume sending with. Emails are rotated across selected accounts.
+                </p>
+                <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
+                    onClick={() => setEditSelectedSmtpIds(smtpConfigs.map((s: any) => s.id))}
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
+                    onClick={() => setEditSelectedSmtpIds([])}
+                  >
+                    Deselect All
+                  </button>
+                  <span style={{ fontSize: "0.75rem", color: "var(--muted)", alignSelf: "center" }}>
+                    {editSelectedSmtpIds.length} of {smtpConfigs.length} selected
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.5rem" }}>
+                  {smtpConfigs.map((smtp: any) => (
+                    <label
+                      key={smtp.id}
+                      style={{
+                        display: "flex", alignItems: "center", gap: "0.5rem",
+                        padding: "0.5rem 0.75rem", borderRadius: "0.5rem", cursor: "pointer",
+                        background: editSelectedSmtpIds.includes(smtp.id) ? "rgba(34,197,94,0.1)" : "var(--background)",
+                        border: `1px solid ${editSelectedSmtpIds.includes(smtp.id) ? "var(--success)" : "var(--border)"}`,
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editSelectedSmtpIds.includes(smtp.id)}
+                        onChange={() => {
+                          setEditSelectedSmtpIds((prev) =>
+                            editSelectedSmtpIds.includes(smtp.id)
+                              ? prev.filter((id) => id !== smtp.id)
+                              : [...prev, smtp.id]
+                          );
+                        }}
+                      />
+                      <div style={{ fontSize: "0.8rem" }}>
+                        <div style={{ fontWeight: 500 }}>{smtp.name || smtp.host}</div>
+                        <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
+                          {smtp.from_email || smtp.email || smtp.user}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                {smtpConfigs.length === 0 && (
+                  <p style={{ fontSize: "0.8rem", color: "var(--warning)", marginTop: "0.5rem" }}>
+                    Warning: No SMTP accounts configured. Add one in Settings.
+                  </p>
+                )}
               </div>
             )}
           </div>

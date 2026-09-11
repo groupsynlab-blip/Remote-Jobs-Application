@@ -1,16 +1,17 @@
-node_modules/
-.next/
-data/
-.env
-.env.local
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-nixpacks.toml
-.nixpacks/
-.DS_Store
 
 # build artifacts that churn on every dev/build run
-tsconfig.tsbuildinfo
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+.DS_Store
+.env
+.env.local
+.next/
+.nixpacks/
+.test-build/
+data/
 next-env.d.ts
+nixpacks.toml
+node_modules/
+tsconfig.tsbuildinfo
