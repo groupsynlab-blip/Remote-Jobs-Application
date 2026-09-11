@@ -127,7 +127,28 @@ export default function ContactsPage() {
     }
   }, [pasteText]);
 
-  const processCsv = useCallback(async (text: string, fileName: string) => {
+  const processCsv = useCallback(async (rawText: string, fileName: string) => {
+    // Normalize common .txt shapes so preview + import both receive valid CSV:
+    // - strip UTF-8 BOM (Excel exports)
+    // - tab/semicolon-delimited exports → commas
+    // - headerless one-email-per-line lists → synthesize an "email" header
+    let text = rawText.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    const rawLines = text.split("\n").filter(l => l.trim());
+    const firstLine = rawLines[0] || "";
+    const looksLikeEmail = (s: string) => /^[^\s,;@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+    if (!firstLine.includes(",")) {
+      if (firstLine.includes("\t")) {
+        text = rawLines.map(l => l.split("\t").map(c => c.trim()).join(",")).join("\n");
+      } else if (firstLine.includes(";")) {
+        text = rawLines.map(l => l.split(";").map(c => c.trim()).join(",")).join("\n");
+      } else if (rawLines.every(looksLikeEmail)) {
+        // Plain email list (with or without a header line) — headerize it.
+        const dataLines = looksLikeEmail(firstLine) ? rawLines : rawLines.slice(1);
+        if (dataLines.length > 0) {
+          text = ["email", ...dataLines].join("\n");
+        }
+      }
+    }
     setCsvText(text);
     setCsvFileName(fileName);
     setError(null);
@@ -154,6 +175,10 @@ export default function ContactsPage() {
           const sample = data.previewRows[0]?.[col.header] || "";
           if (sample.includes("@")) { mapping.email = col.index; break; }
         }
+      }
+      if (mapping.email === null) {
+        setError("Could not find an email column — check that the file contains email addresses");
+        return;
       }
       setColumnMapping(mapping);
       setListName(data.cleanListName);

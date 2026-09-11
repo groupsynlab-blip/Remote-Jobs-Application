@@ -10,7 +10,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No CSV data provided' }, { status: 400 });
     }
 
-    const lines = csvText.split('\n').filter((l: string) => l.trim());
+    // Normalize common .txt shapes so plain email lists and tab/semicolon
+    // exports work alongside proper CSV (mirrors the client-side normalization).
+    let normalized = csvText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+    const preLines = normalized.split('\n').filter((l: string) => l.trim());
+    const firstLine = preLines[0] || '';
+    const looksLikeEmail = (s: string) => /^[^\s,;@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+    if (!firstLine.includes(',')) {
+      if (firstLine.includes('\t')) {
+        normalized = preLines.map((l: string) => l.split('\t').map((c: string) => c.trim()).join(',')).join('\n');
+      } else if (firstLine.includes(';')) {
+        normalized = preLines.map((l: string) => l.split(';').map((c: string) => c.trim()).join(',')).join('\n');
+      } else if (preLines.every(looksLikeEmail)) {
+        const dataLines = looksLikeEmail(firstLine) ? preLines : preLines.slice(1);
+        if (dataLines.length > 0) {
+          normalized = ['email', ...dataLines].join('\n');
+        }
+      }
+    }
+
+    const lines = normalized.split('\n').filter((l: string) => l.trim());
     if (lines.length < 2) {
       return NextResponse.json({ error: 'CSV must have a header row and at least one data row' }, { status: 400 });
     }
