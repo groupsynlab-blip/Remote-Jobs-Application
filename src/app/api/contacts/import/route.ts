@@ -5,10 +5,31 @@ import { v4 as uuidv4 } from 'uuid';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { csvText, listName, columnMapping, duplicateAction, createNewList, existingListId } = body;
+    const { csvText: rawCsvText, listName, columnMapping, duplicateAction, createNewList, existingListId } = body;
+    let csvText: string = typeof rawCsvText === 'string' ? rawCsvText : (rawCsvText == null ? '' : String(rawCsvText));
 
     if (!csvText || !columnMapping || columnMapping.email === undefined) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Normalize common .txt shapes (mirrors the client + preview normalization):
+    // BOM, CRLF, tab/semicolon delimiters, headerless one-email-per-line lists.
+    {
+      let normalized = String(csvText).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+      const preLines = normalized.split('\n').filter((l: string) => l.trim());
+      const firstLine = preLines[0] || '';
+      const looksLikeEmail = (s: string) => /^[^\s,;@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+      if (!firstLine.includes(',')) {
+        if (firstLine.includes('\t')) {
+          normalized = preLines.map((l: string) => l.split('\t').map((c: string) => c.trim()).join(',')).join('\n');
+        } else if (firstLine.includes(';')) {
+          normalized = preLines.map((l: string) => l.split(';').map((c: string) => c.trim()).join(',')).join('\n');
+        } else if (preLines.every(looksLikeEmail)) {
+          const dataLines = looksLikeEmail(firstLine) ? preLines : preLines.slice(1);
+          if (dataLines.length > 0) normalized = ['email', ...dataLines].join('\n');
+        }
+      }
+      csvText = normalized;
     }
 
     const db = getDb();

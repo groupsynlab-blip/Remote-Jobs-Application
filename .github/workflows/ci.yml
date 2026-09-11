@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTH_SECRET: ci-secret
+      SMOKE_DB_PATH: data/emailer.db
+      SMOKE_BASE_URL: http://localhost:3100
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npx next build
+
+      - name: Start server on disposable SQLite DB
+        run: |
+          mkdir -p data
+          AUTH_SECRET=ci-secret npx next start -p 3100 &
+          echo $! > /tmp/server.pid
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3100/login > /dev/null && echo "server ready" && break
+            sleep 1
+          done
+
+      - name: Migration regression test (npm test)
+        run: npm test
+
+      - name: Smoke suite (npm run smoke)
+        run: npm run smoke
+
+      - name: Stop server
+        if: always()
+        run: kill $(cat /tmp/server.pid) 2>/dev/null || true

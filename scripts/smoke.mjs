@@ -22,6 +22,8 @@ const DB_PATH = process.env.SMOKE_DB_PATH || path.join(process.cwd(), 'data', 'e
 // ── Cookie minting ────────────────────────────────────────────────────────────
 
 function readEnvSecret() {
+  // 1. explicit env var (CI), 2. .env file, 3. code default
+  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
   const envPath = path.join(process.cwd(), '.env');
   if (fs.existsSync(envPath)) {
     for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
