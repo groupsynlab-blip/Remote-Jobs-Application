@@ -77,7 +77,7 @@ const ok = (cond, label, extra = '') => {
 let db;
 const dbScalar = (sql, ...args) => Object.values(db.prepare(sql).get(...args) || {})[0];
 
-let smokeListId, smokeTemplateId, smokeCampaignId, smokeContactIds = [];
+let smokeListId, smokeTemplateId, smokeCampaignId, smokeSmtpId, smokeContactIds = [];
 
 const api = async (p, opts = {}) => {
   const res = await fetch(BASE + p, {
@@ -175,11 +175,23 @@ try {
     ok(realAn.status === 200 && realAn.body?.campaign, 'analytics: real campaign renders (read-only)', `id=${realId}`);
   }
 
-  // 5. SMTP security modes — every config must carry an explicit mode
+  // 5. SMTP security modes — seed a test config so this is meaningful even on a fresh DB
+  const seeded = await api('/api/smtp', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: '[SMOKE-TEST] smtp', host: 'smtp.example.com', port: 587,
+      security: 'starttls', user: 'smoke@example.com', pass: 'not-real',
+      from_email: 'smoke@example.com', enabled: false,
+    }),
+  });
+  ok(seeded.status === 200 && seeded.body?.success, 'smtp: seeded test config', `id=${seeded.body?.id}`);
+  smokeSmtpId = seeded.body?.id;
+
   const smtps = await api('/api/smtp');
+  const mySmtp = (smtps.body || []).find((c) => c.id === smokeSmtpId);
+  ok(smtps.status === 200 && Array.isArray(smtps.body), 'smtp list renders', `configs=${smtps.body?.length}`);
+  ok(!!mySmtp && mySmtp.security === 'starttls', 'smtp security: seeded config carries its explicit mode', `mode=${mySmtp?.security}`);
   const unmoded = (smtps.body || []).filter((c) => !c.security);
-  ok(smtps.status === 200 && Array.isArray(smtps.body) && smtps.body.length > 0,
-    'smtp list renders', `configs=${smtps.body?.length}`);
   ok(unmoded.length === 0, 'smtp security: every config has an explicit mode (no legacy NULL)',
     unmoded.length ? `missing: ${unmoded.map((c) => c.name).join(', ')}` : `modes=${[...new Set((smtps.body || []).map((c) => c.security))].join('/')}`);
 
@@ -198,6 +210,7 @@ try {
     } catch (e) { ok(false, `cleanup: ${label}`, e.message); }
   };
   if (smokeCampaignId) await del(`/api/campaigns/${smokeCampaignId}`, 'delete smoke campaign');
+  if (smokeSmtpId) await del(`/api/smtp?id=${smokeSmtpId}`, 'delete smoke smtp config');
   if (smokeTemplateId) await del(`/api/templates?id=${smokeTemplateId}`, 'delete smoke template');
   if (smokeListId) await del(`/api/contacts?id=${smokeListId}&type=list`, 'delete smoke list');
   for (const cid of smokeContactIds) await del(`/api/contacts?id=${cid}&type=contact`, `delete smoke contact ${String(cid).slice(0, 8)}`);
@@ -209,8 +222,9 @@ try {
     const ll = dbScalar("SELECT COUNT(*) c FROM contact_lists WHERE name LIKE ?", '%SMOKE-TEST%');
     const lca = dbScalar("SELECT COUNT(*) c FROM campaigns WHERE name LIKE ?", '%SMOKE-TEST%');
     const lt = dbScalar("SELECT COUNT(*) c FROM email_templates WHERE name LIKE ?", '%SMOKE-TEST%');
-    ok(lc === 0 && ll === 0 && lca === 0 && lt === 0, 'cleanup verified: no smoke rows remain',
-      `contacts=${lc} lists=${ll} campaigns=${lca} templates=${lt}`);
+    const ls = dbScalar("SELECT COUNT(*) c FROM smtp_config WHERE name LIKE ?", '%SMOKE-TEST%');
+    ok(lc === 0 && ll === 0 && lca === 0 && lt === 0 && ls === 0, 'cleanup verified: no smoke rows remain',
+      `contacts=${lc} lists=${ll} campaigns=${lca} templates=${lt} smtp=${ls}`);
   }
   db?.close();
 }
