@@ -543,6 +543,18 @@ function initializeDb(db: Database.Database) {
     console.error("[DB] smtp_config security backfill error:", e.message);
   }
 
+  // Migration: add paused_by_user flag so a user-initiated pause is never
+  // auto-resumed by SMTP-limit or network recovery.
+  try {
+    const campaignCols = db.prepare("PRAGMA table_info(campaigns)").all() as { name: string }[];
+    if (!campaignCols.some(c => c.name === 'paused_by_user')) {
+      db.exec("ALTER TABLE campaigns ADD COLUMN paused_by_user INTEGER NOT NULL DEFAULT 0");
+      console.log('[DB] Added paused_by_user column to campaigns');
+    }
+  } catch (e: any) {
+    console.error("[DB] campaigns paused_by_user migration error:", e.message);
+  }
+
   // Fix campaigns table PRIMARY KEY if missing (causes foreign key errors with email_logs)
   try {
     const pkCheck = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='campaigns'").get() as { sql: string } | undefined;

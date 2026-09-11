@@ -42,8 +42,23 @@ export default function CampaignDetailPage() {
   const statusCounts: Record<string, number> = {};
   for (const s of status_breakdown) statusCounts[s.status] = s.count;
 
+  // Group failure reasons so "why did emails fail" is answered at a glance
+  const errorGroups = (Object.entries(
+    logs.reduce((acc: Record<string, number>, log: any) => {
+      if ((log.status === "failed" || log.status === "skipped") && log.error_message) {
+        const key = log.error_message.length > 160 ? log.error_message.slice(0, 160) + "…" : log.error_message;
+        acc[key] = (acc[key] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>)
+  ) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  const copyReason = (text: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+  };
+
   return (
-    <div style={{ maxWidth: "900px" }}>
+    <div style={{ maxWidth: "1200px" }}>
       {/* Header */}
       <div style={{ marginBottom: "1.5rem" }}>
         <button onClick={() => router.push("/history")} style={{
@@ -129,6 +144,42 @@ export default function CampaignDetailPage() {
         </div>
       </div>
 
+      {/* Why emails failed — grouped reasons */}
+      {errorGroups.length > 0 && (
+        <div style={{
+          marginBottom: "1.5rem", padding: "0.875rem 1rem", borderRadius: "0.5rem",
+          background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.25)",
+        }}>
+          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.6rem", color: "var(--danger)" }}>
+            ⚠️ Why emails failed or were skipped
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {errorGroups.map(([msg, count]) => (
+              <div key={msg} style={{
+                display: "flex", gap: "0.625rem", alignItems: "flex-start",
+                padding: "0.5rem 0.625rem", borderRadius: "0.4rem",
+                background: "var(--bg-secondary)", border: "1px solid var(--border)",
+              }}>
+                <span style={{
+                  flexShrink: 0, fontSize: "0.7rem", fontWeight: 700, color: "#fff",
+                  background: "rgba(239,68,68,0.85)", borderRadius: "0.75rem",
+                  padding: "0.1rem 0.5rem", marginTop: "0.1rem",
+                }}>{count}×</span>
+                <span style={{
+                  fontSize: "0.72rem", color: "var(--danger)", fontFamily: "monospace",
+                  wordBreak: "break-word", whiteSpace: "pre-wrap", flex: 1,
+                }}>{msg}</span>
+                <button
+                  onClick={() => copyReason(msg)}
+                  title="Copy reason"
+                  style={{ flexShrink: 0, border: "none", background: "transparent", color: "var(--muted)", cursor: "pointer", fontSize: "0.7rem" }}
+                >📋</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: "0.25rem" }}>
@@ -154,13 +205,14 @@ export default function CampaignDetailPage() {
       </div>
 
       {/* Email Log Table */}
-      <div style={{ borderRadius: "0.5rem", border: "1px solid var(--border)", overflow: "hidden", marginBottom: "1rem" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
+      <div style={{ borderRadius: "0.5rem", border: "1px solid var(--border)", overflowX: "auto", marginBottom: "1rem" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem", minWidth: "900px" }}>
           <thead>
             <tr style={{ background: "var(--bg-secondary)", textAlign: "left" }}>
               <th style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}>Email</th>
               <th style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}>Name</th>
               <th style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}>Status</th>
+              <th style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}>Reason (full)</th>
               <th style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}>SMTP Used</th>
               <th style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}>Subject</th>
               <th style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}>Time</th>
@@ -178,26 +230,37 @@ export default function CampaignDetailPage() {
                 <td style={{ padding: "0.5rem 0.75rem" }}>
                   <span style={{
                     padding: "0.125rem 0.5rem", borderRadius: "0.75rem", fontSize: "0.65rem", fontWeight: 600,
-                    background: log.status === "sent" ? "rgba(34,197,94,0.15)" : log.status === "failed" ? "rgba(239,68,68,0.15)" : log.status === "queued" ? "rgba(245,158,11,0.15)" : "var(--border)",
-                    color: log.status === "sent" ? "#10b981" : log.status === "failed" ? "#ef4444" : log.status === "queued" ? "#f59e0b" : "var(--muted)",
+                    background: log.status === "sent" ? "rgba(34,197,94,0.15)" : log.status === "failed" ? "rgba(239,68,68,0.15)" : log.status === "queued" ? "rgba(245,158,11,0.15)" : "rgba(234,179,8,0.15)",
+                    color: log.status === "sent" ? "#10b981" : log.status === "failed" ? "#ef4444" : log.status === "queued" ? "#f59e0b" : "rgb(234,179,8)",
                   }}>
-                    {log.status === "sent" ? "✅ Sent" : log.status === "failed" ? "❌ Failed" : log.status === "queued" ? "📧 Queued" : log.status}
+                    {log.status === "sent" ? "✅ Sent" : log.status === "failed" ? "❌ Failed" : log.status === "skipped" ? "⏭ Skipped" : log.status === "queued" ? "📧 Queued" : log.status}
                   </span>
                   {log.open_count > 0 && (
                     <span style={{ marginLeft: "0.25rem", fontSize: "0.7rem", color: "#8b5cf6" }}>
                       👁️ {log.open_count}x
                     </span>
                   )}
-                  {log.error_message && (
-                    <div style={{ fontSize: "0.6rem", color: "var(--danger)", marginTop: "0.125rem", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                </td>
+                <td style={{ padding: "0.5rem 0.75rem", maxWidth: "380px" }}>
+                  {log.error_message ? (
+                    <div
+                      onClick={() => copyReason(log.error_message)}
+                      title="Click to copy the full reason"
+                      style={{
+                        fontSize: "0.65rem", color: "var(--danger)", cursor: "pointer",
+                        wordBreak: "break-word", whiteSpace: "pre-wrap", fontFamily: "monospace",
+                      }}
+                    >
                       {log.error_message}
                     </div>
+                  ) : (
+                    <span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>—</span>
                   )}
                 </td>
                 <td style={{ padding: "0.5rem 0.75rem", color: "var(--muted)" }}>
                   {log.smtp_name || "—"}
                 </td>
-                <td style={{ padding: "0.5rem 0.75rem", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted)" }}>
+                <td style={{ padding: "0.5rem 0.75rem", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted)" }} title={log.subject_used || ""}>
                   {log.subject_used || "—"}
                 </td>
                 <td style={{ padding: "0.5rem 0.75rem", color: "var(--muted)", whiteSpace: "nowrap" }}>
@@ -207,7 +270,7 @@ export default function CampaignDetailPage() {
             ))}
             {pagedLogs.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: "1.5rem", textAlign: "center", color: "var(--muted)" }}>
+                <td colSpan={7} style={{ padding: "1.5rem", textAlign: "center", color: "var(--muted)" }}>
                   No emails match the current filter
                 </td>
               </tr>

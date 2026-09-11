@@ -131,13 +131,21 @@ export async function GET(
         const delayMs = (campaign.delay_seconds || 2) * 1000;
         let consecutiveNetworkFailures = 0;
         let pausedDueToNetwork = false;
+        let pausedExternally = false;
 
         while (!closed) {
           // Check if campaign was paused externally (e.g. from Campaigns page)
           if (emailsSinceStatusCheck >= 5) {
-            const currentStatus = db.prepare('SELECT status FROM campaigns WHERE id = ?').get(id) as { status: string } | undefined;
+            const currentStatus = db.prepare('SELECT status, paused_by_user FROM campaigns WHERE id = ?').get(id) as { status: string; paused_by_user: number } | undefined;
             if (currentStatus && currentStatus.status === 'paused') {
-              // Before pausing, check if any SMTP has recovered capacity
+              // A deliberate user pause is final — the stream sender stops and
+              // never auto-resumes it, even if SMTP capacity has recovered.
+              if (currentStatus.paused_by_user) {
+                send({ type: 'paused', sent: totalSent, failed: totalFailed, remaining: (db.prepare("SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'").get(id) as any).count });
+                pausedExternally = true;
+                break;
+              }
+              // Automatic pause (rate limits) — check if any SMTP has recovered capacity
               const anyAvailable = smtpConfigs.some((c) => !isSmtpRateLimited(c).limited);
               if (anyAvailable) {
                 // Limits have reset — auto-resume
@@ -147,6 +155,7 @@ export async function GET(
                 continue;
               }
               send({ type: 'paused', sent: totalSent, failed: totalFailed, remaining: (db.prepare("SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'").get(id) as any).count });
+              pausedExternally = true;
               break;
             }
             emailsSinceStatusCheck = 0;
@@ -161,6 +170,22 @@ export async function GET(
           for (const emailLog of queuedEmails) {
             if (closed) break;
             emailsSinceStatusCheck++;
+
+            // ═══ PAUSE CHECK before EVERY email ═══
+            // The campaign status in the DB is the single source of truth:
+            // as soon as the user pauses, sending stops — at most one email
+            // that is already mid-flight when the pause lands will complete.
+            const statusNow = db.prepare('SELECT status, paused_by_user FROM campaigns WHERE id = ?').get(id) as { status: string; paused_by_user: number } | undefined;
+            if (statusNow && (statusNow.status === 'paused' || statusNow.status === 'cancelled')) {
+              send({ type: 'paused', sent: totalSent, failed: totalFailed, remaining: (db.prepare("SELECT COUNT(*) as count FROM email_logs WHERE campaign_id = ? AND status = 'queued'").get(id) as any).count });
+              pausedExternally = true;
+              break;
+            }
+            if (!statusNow) {
+              // Campaign was deleted mid-send — stop immediately.
+              closed = true;
+              break;
+            }
 
             // Find next available SMTP that isn't rate-limited
             let smtpConfig: any = null;
@@ -309,7 +334,7 @@ export async function GET(
             }
           }
 
-          if (pausedDueToNetwork) break;
+          if (pausedDueToNetwork || pausedExternally) break;
         }
 
         db.prepare('UPDATE campaigns SET sent_count = sent_count + ?, failed_count = failed_count + ?, skipped_count = COALESCE(skipped_count, 0) + ? WHERE id = ?')
@@ -323,7 +348,7 @@ export async function GET(
           db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ?").run(id);
         }
 
-        if (!pausedDueToNetwork) {
+        if (!pausedDueToNetwork && !pausedExternally) {
           send({ type: 'done', sent: totalSent, failed: totalFailed, skipped: totalSkipped, total, remaining: remaining.count });
         }
       } catch (error: any) {

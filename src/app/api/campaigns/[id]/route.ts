@@ -119,7 +119,10 @@ export async function PATCH(
       if (campaign.status !== 'sending' && campaign.status !== 'paused') {
         return NextResponse.json({ error: 'Campaign is not active' }, { status: 400 });
       }
-      db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ?").run(id);
+      // Stamp a user pause so auto-resume (SMTP-limit / network recovery) can
+      // never override a deliberate stop. Senders re-read this row before
+      // every email, so this takes effect within ~one in-flight email.
+      db.prepare("UPDATE campaigns SET status = 'paused', paused_by_user = 1 WHERE id = ?").run(id);
       return NextResponse.json({ success: true, status: 'paused' });
     }
 
@@ -131,7 +134,7 @@ export async function PATCH(
       if (campaign.status !== 'paused') {
         return NextResponse.json({ error: 'Campaign is not paused' }, { status: 400 });
       }
-      db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(id);
+      db.prepare("UPDATE campaigns SET status = 'sending', paused_by_user = 0 WHERE id = ?").run(id);
       return NextResponse.json({ success: true, status: 'sending' });
     }
 
@@ -143,7 +146,7 @@ export async function PATCH(
       const result = db.prepare(
         "UPDATE email_logs SET status = 'queued', error_message = NULL, smtp_config_id = NULL WHERE campaign_id = ? AND status IN ('failed', 'skipped')"
       ).run(id);
-      db.prepare("UPDATE campaigns SET status = 'sending', sent_at = datetime('now') WHERE id = ?").run(id);
+      db.prepare("UPDATE campaigns SET status = 'sending', paused_by_user = 0, sent_at = datetime('now') WHERE id = ?").run(id);
       return NextResponse.json({ success: true, retried: result.changes });
     }
 

@@ -155,7 +155,7 @@ async function checkAndSendScheduled(): Promise<void> {
       console.log(`[Scheduler] 🔄 Re-enabled SMTP configs: ${reenabled.join(', ')}`);
       // Auto-resume any paused campaigns that have queued emails
       const pausedCampaigns = db.prepare(
-        "SELECT id, name FROM campaigns WHERE status = 'paused'"
+        "SELECT id, name FROM campaigns WHERE status = 'paused' AND paused_by_user = 0"
       ).all() as { id: string; name: string }[];
       for (const pc of pausedCampaigns) {
         const queued = db.prepare(
@@ -170,7 +170,7 @@ async function checkAndSendScheduled(): Promise<void> {
             console.error(`[Scheduler] Error resuming campaign ${pc.name}:`, err.message);
           }
         } else {
-          db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ?").run(pc.id);
+          db.prepare("UPDATE campaigns SET status = 'sent' WHERE id = ? AND paused_by_user = 0").run(pc.id);
         }
       }
     }
@@ -282,6 +282,13 @@ async function processScheduledCampaign(campaignId: string): Promise<void> {
 
   while (!allDone) {
     // ═══ PAUSE CHECK ═══
+    // The campaign's DB status is the single source of truth for user pauses:
+    // a paused (or deleted) campaign stops immediately, mid-batch included.
+    const campRow = db.prepare('SELECT status FROM campaigns WHERE id = ?').get(campaignId) as { status: string } | undefined;
+    if (!campRow || campRow.status === 'paused' || campRow.status === 'cancelled') {
+      console.log(`[Scheduler] Campaign "${campaign.name}" stopped — paused by user or deleted, emails remain queued`);
+      return; // Exit — emails remain queued in DB for resume
+    }
     if (schedulerPaused) {
       console.log(`[Scheduler] Paused — campaign "${campaign.name}" stopped with remaining emails`);
       return; // Exit — emails remain queued in DB for resume
@@ -390,6 +397,11 @@ async function sendBatch(
 
   for (const emailLog of queuedEmails) {
     // ═══ PAUSE CHECK per email ═══
+    // Stop as soon as the user pauses: the DB status is authoritative.
+    const campRow = db.prepare('SELECT status FROM campaigns WHERE id = ?').get(campaignId) as { status: string } | undefined;
+    if (!campRow || campRow.status === 'paused' || campRow.status === 'cancelled') {
+      break;
+    }
     if (schedulerPaused) {
       break;
     }
@@ -541,6 +553,11 @@ async function processPausedCampaign(campaignId: string): Promise<void> {
 
   let allDone = false;
   while (!allDone) {
+    const campRow = db.prepare('SELECT status FROM campaigns WHERE id = ?').get(campaignId) as { status: string } | undefined;
+    if (!campRow || campRow.status !== 'sending') {
+      // Deleted, or paused by the user — never auto-resume a deliberate stop.
+      return;
+    }
     if (schedulerPaused) {
       db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND status = 'sending'").run(campaignId);
       return;

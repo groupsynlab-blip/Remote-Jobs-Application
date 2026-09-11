@@ -162,6 +162,13 @@ export default function ComposePage() {
   const [editSubjects, setEditSubjects] = useState<string[]>([""]);
   const [editSelectedSmtpIds, setEditSelectedSmtpIds] = useState<string[]>([]);
   const [editShowSmtpSection, setEditShowSmtpSection] = useState(false);
+  // ─── Full paused-edit state (all campaign settings editable while paused) ──
+  const [editName, setEditName] = useState("");
+  const [editContactListId, setEditContactListId] = useState("");
+  const [editReplyTo, setEditReplyTo] = useState("");
+  const [editDelaySeconds, setEditDelaySeconds] = useState(2);
+  const [editEnableTracking, setEditEnableTracking] = useState(true);
+  const [editEnableUnsubscribe, setEditEnableUnsubscribe] = useState(true);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const autoPausedRef = useRef(false);
@@ -393,6 +400,14 @@ export default function ComposePage() {
       }
       setEditSelectedSmtpIds(smtpIds.length > 0 ? smtpIds : smtpConfigs.map((s: any) => s.id));
 
+      // All other settings
+      setEditName(c.name || "");
+      setEditContactListId(c.contact_list_id || "");
+      setEditReplyTo(c.reply_to || "");
+      setEditDelaySeconds(c.delay_seconds ?? 2);
+      setEditEnableTracking(c.enable_tracking === 1);
+      setEditEnableUnsubscribe(c.enable_unsubscribe === 1);
+
       setEditingInCampaign(true);
     } catch (err) {
       console.error("Failed to load campaign for editing:", err);
@@ -407,8 +422,14 @@ export default function ComposePage() {
     try {
       const body: any = {};
 
-      // Template
-      if (editTemplateId) body.template_id = editTemplateId;
+      // All editable settings
+      body.name = editName;
+      body.template_id = editTemplateId;
+      body.contact_list_id = editContactListId;
+      body.reply_to = editReplyTo.trim() || null;
+      body.delay_seconds = Math.max(0, Math.min(60, Number(editDelaySeconds) || 0));
+      body.enable_tracking = editEnableTracking ? 1 : 0;
+      body.enable_unsubscribe = editEnableUnsubscribe ? 1 : 0;
 
       // Template rotation
       if (editUseRotation && editSelectedTemplateIds.length > 1) {
@@ -777,7 +798,7 @@ export default function ComposePage() {
     : 0;
 
   return (
-    <div style={{ maxWidth: "700px" }}>
+    <div style={{ maxWidth: "1100px" }}>
       <div style={{ marginBottom: "2rem" }}>
         <h1 style={{ fontSize: "1.75rem", fontWeight: 700 }}>Compose Campaign</h1>
         <p style={{ color: "var(--muted)", marginTop: "0.25rem" }}>
@@ -976,7 +997,7 @@ export default function ComposePage() {
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <span style={{ fontSize: "1rem" }}>✏️</span>
               <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>Edit Campaign Settings</span>
-              <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>— change template, subject rotation, or template rotation before resuming</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>— name, list, reply-to, delay, tracking, SMTP, and rotations can all be changed before resuming</span>
             </div>
             <button className="btn btn-secondary" onClick={openCampaignEditor}
               style={{ fontSize: "0.75rem", padding: "0.4rem 0.75rem" }}>
@@ -990,7 +1011,53 @@ export default function ComposePage() {
         <div className="card" style={{ marginBottom: "1rem", padding: "1rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
             <span style={{ fontSize: "1rem" }}>✏️</span>
-            <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>Editing Campaign — Changes apply on next batch</span>
+            <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>Editing Campaign — Changes apply on resume</span>
+          </div>
+
+          {/* Campaign name */}
+          <div style={{ marginBottom: "1rem" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, marginBottom: "0.375rem" }}>Campaign Name</label>
+            <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
+          </div>
+
+          {/* Contact list */}
+          <div style={{ marginBottom: "1rem" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, marginBottom: "0.375rem" }}>
+              Contact List <span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>— remaining (queued) emails stay queued; the list matters for future retries/re-queues</span>
+            </label>
+            <select className="input" value={editContactListId} onChange={(e) => setEditContactListId(e.target.value)}>
+              {lists.map((l: any) => (
+                <option key={l.id} value={l.id}>{l.name} ({l.member_count} contacts)</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Reply-To + Delay */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: "0.75rem", marginBottom: "1rem" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, marginBottom: "0.375rem" }}>Reply-To Email</label>
+              <input className="input" type="email" placeholder="replies@yourcompany.com (empty = default)"
+                value={editReplyTo} onChange={(e) => setEditReplyTo(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, marginBottom: "0.375rem" }}>Delay (sec)</label>
+              <input className="input" type="number" min={0} max={60} value={editDelaySeconds}
+                onChange={(e) => setEditDelaySeconds(Number(e.target.value))} />
+            </div>
+          </div>
+
+          {/* Tracking & compliance */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", cursor: "pointer" }}>
+              <input type="checkbox" checked={editEnableTracking}
+                onChange={(e) => setEditEnableTracking(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+              👁️ Open Tracking
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", cursor: "pointer" }}>
+              <input type="checkbox" checked={editEnableUnsubscribe}
+                onChange={(e) => setEditEnableUnsubscribe(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+              🔗 Unsubscribe Link
+            </label>
           </div>
 
           {/* Template selection */}
@@ -1914,11 +1981,17 @@ export default function ComposePage() {
               }}>
                 {lastStatus === "sent" ? "✅ Sent" : lastStatus === "failed" ? "❌ Failed" : "⏭ Skipped"}
               </span>
-              {lastError && lastStatus === "failed" && (
-                <span style={{ fontSize: "0.7rem", color: "var(--danger)", marginLeft: "auto" }}>
-                  {lastError.length > 50 ? lastError.substring(0, 50) + "..." : lastError}
-                </span>
-              )}
+            </div>
+          )}
+          {lastEmail && lastError && lastStatus !== "sent" && (
+            <div style={{
+              padding: "0.5rem 0.75rem 0.625rem", marginTop: "-0.5rem",
+              background: "var(--background)", fontSize: "0.72rem", color: "var(--danger)",
+              fontFamily: "monospace", wordBreak: "break-word", whiteSpace: "pre-wrap",
+              border: "1px solid rgba(239, 68, 68, 0.2)", borderTop: "none",
+              borderRadius: "0 0 0.5rem 0.5rem",
+            }}>
+              ⚠️ {lastError}
             </div>
           )}
 
@@ -1927,7 +2000,7 @@ export default function ComposePage() {
             <div style={{ marginBottom: "0.75rem" }}>
               <div style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
-                marginBottom: "0.5rem",
+                marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.25rem",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>📋 Live Log</span>
@@ -1970,7 +2043,7 @@ export default function ComposePage() {
                   autoScrollRef.current = scrollHeight - scrollTop - clientHeight < 30;
                 }}
                 style={{
-                  maxHeight: "200px", overflowY: "auto",
+                  maxHeight: "260px", overflowY: "auto",
                   borderRadius: "0.5rem",
                   border: "1px solid var(--border)",
                   background: "var(--background)",
@@ -1980,7 +2053,6 @@ export default function ComposePage() {
                   .filter((e) => logFilter === "all" || e.status === logFilter)
                   .map((entry) => (
                     <div key={entry.id} style={{
-                      display: "flex", alignItems: "center", gap: "0.5rem",
                       padding: "0.25rem 0.625rem",
                       borderBottom: "1px solid var(--border)",
                       color: entry.status === "sent"
@@ -1989,19 +2061,31 @@ export default function ComposePage() {
                         ? "var(--danger)"
                         : "rgb(234, 179, 8)",
                     }}>
-                      <span style={{ color: "var(--muted)", flexShrink: 0, width: "65px" }}>
-                        {entry.time}
-                      </span>
-                      <span style={{ flexShrink: 0 }}>
-                        {entry.status === "sent" ? "✅" : entry.status === "failed" ? "❌" : "⏭"}
-                      </span>
-                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {entry.email}
-                      </span>
-                      {entry.error && (
-                        <span style={{ color: "var(--danger)", fontSize: "0.6rem", flexShrink: 0, maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {entry.error}
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                        <span style={{ color: "var(--muted)", flexShrink: 0, width: "65px" }}>
+                          {entry.time}
                         </span>
+                        <span style={{ flexShrink: 0 }}>
+                          {entry.status === "sent" ? "✅" : entry.status === "failed" ? "❌" : "⏭"}
+                        </span>
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                          {entry.email}
+                        </span>
+                        {entry.error && (
+                          <span style={{ color: "var(--danger)", fontSize: "0.65rem", flexShrink: 0, cursor: "help" }} title={entry.error}>
+                            ⚠ reason ↓
+                          </span>
+                        )}
+                      </div>
+                      {entry.error && (
+                        <div style={{
+                          marginTop: "0.15rem", marginLeft: "72px",
+                          fontSize: "0.65rem", color: "var(--danger)", opacity: 0.9,
+                          wordBreak: "break-word", whiteSpace: "pre-wrap",
+                          fontFamily: "monospace",
+                        }}>
+                          {entry.error}
+                        </div>
                       )}
                     </div>
                   ))}
