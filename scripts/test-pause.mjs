@@ -181,9 +181,12 @@ try {
   const detail = await api(`/api/campaigns/${campId}`);
   const st = detail.body?.stats || {};
   const processed = (st.total || 0) - (st.queued || 0);
-  ok(processed < N, `pause stopped sending mid-flight (${processed}/${N} processed, ${st.queued} still queued)`,
+  ok(processed < N, `pause stopped sending mid-flight (${processed}/${N} finalized, ${st.queued} still queued/unattempted)`,
     JSON.stringify({ total: st.total, queued: st.queued, sent: st.sent, failed: st.failed }));
-  ok(processed >= 1, 'at least one email was attempted before the pause landed', `processed=${processed}`);
+  // With transient-retry semantics, attempted emails may be requeued (still
+  // 'queued' status), so "an attempt happened" is proven by progress events.
+  ok(events.some((e) => e.type === 'progress'), 'at least one email was attempted before the pause landed',
+    `progress events=${events.filter((e) => e.type === 'progress').length}`);
 
   if (db) {
     const q = dbScalar("SELECT COUNT(*) c FROM email_logs WHERE campaign_id = ? AND status = 'queued'", campId);

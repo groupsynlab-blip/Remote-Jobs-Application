@@ -7,6 +7,11 @@ import {
   SmtpRotator,
   cleanupRateTracking,
   reEnableExpiredLimits,
+  isSmtpRateLimited,
+  isDailyQuotaError,
+  isAuthError,
+  isTransientError,
+  setSmtpCooldown,
 } from './email';
 import { getSetting, isEmailUnsubscribed } from './db';
 
@@ -153,7 +158,13 @@ async function checkAndSendScheduled(): Promise<void> {
     const reenabled = reEnableExpiredLimits();
     if (reenabled.length > 0) {
       console.log(`[Scheduler] 🔄 Re-enabled SMTP configs: ${reenabled.join(', ')}`);
-      // Auto-resume any paused campaigns that have queued emails
+    }
+
+    // Auto-resume automatically-paused campaigns once any SMTP account has
+    // capacity again (app limit reset, or a server-imposed cooldown like
+    // Gmail's 550-5.4.5 expired). User-paused campaigns are never touched.
+    const anyCapacity = getEnabledSmtpConfigs().some((c) => !isSmtpRateLimited(c).limited);
+    if (reenabled.length > 0 || anyCapacity) {
       const pausedCampaigns = db.prepare(
         "SELECT id, name FROM campaigns WHERE status = 'paused' AND paused_by_user = 0"
       ).all() as { id: string; name: string }[];
@@ -163,7 +174,7 @@ async function checkAndSendScheduled(): Promise<void> {
         ).get(pc.id) as { count: number };
         if (queued.count > 0) {
           console.log(`[Scheduler] Auto-resuming paused campaign: ${pc.name} (${queued.count} emails remaining)`);
-          db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(pc.id);
+          db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ? AND paused_by_user = 0").run(pc.id);
           try {
             await processPausedCampaign(pc.id);
           } catch (err: any) {
@@ -374,11 +385,12 @@ async function sendBatch(
     return { sent: 0, failed: 0, skipped: 0, remaining: 0, done: false };
   }
 
-  // Get next batch of queued emails
+  // Get next batch of queued emails. Requeued retry rows (attempts > 0) go
+  // last, which gives them a natural cool-off while fresh emails send.
   const queuedEmails = db.prepare(`
     SELECT * FROM email_logs
     WHERE campaign_id = ? AND status = 'queued'
-    ORDER BY created_at ASC
+    ORDER BY attempts ASC, created_at ASC
     LIMIT ?
   `).all(campaignId, BATCH_SIZE) as any[];
 
@@ -487,20 +499,46 @@ async function sendBatch(
       await transporter.sendMail(mailOptions);
 
       db.prepare(
-        "UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, subject_used = ? WHERE id = ?"
+        "UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, subject_used = ?, attempts = attempts + 1 WHERE id = ?"
       ).run(smtpConfig.id, subject, emailLog.id);
 
       rotator.recordSend(smtpConfig.id);
       sentCount++;
     } catch (error: any) {
-      db.prepare(
-        "UPDATE email_logs SET status = 'skipped', error_message = ?, smtp_config_id = ? WHERE id = ?"
-      ).run(error.message || 'Unknown error', smtpConfig.id, emailLog.id);
-      skippedCount++;
+      const errMsg = error.response || error.message || 'Unknown error';
+
+      // ── Server-imposed cooldowns: don't retry the same account email after email ──
+      if (isDailyQuotaError(error)) {
+        // Gmail 550-5.4.5: rolling ~24h window; re-check hourly.
+        setSmtpCooldown(smtpConfig.id, Date.now() + 60 * 60 * 1000);
+        console.log(`[Scheduler] ${smtpConfig.name}: Gmail daily quota exceeded — cooling down 1h`);
+      } else if (isAuthError(error)) {
+        setSmtpCooldown(smtpConfig.id, Date.now() + 30 * 60 * 1000);
+        console.log(`[Scheduler] ${smtpConfig.name}: auth rejected — cooling down 30m`);
+      } else if (isTransientError(error)) {
+        setSmtpCooldown(smtpConfig.id, Date.now() + 60 * 1000);
+      }
+
+      // Transient errors are requeued for a bounded retry (max 3 attempts);
+      // permanent errors are skipped immediately.
+      const attemptsUsed = (emailLog.attempts as number) || 0;
+      if (isTransientError(error) && attemptsUsed < 3) {
+        db.prepare(
+          "UPDATE email_logs SET status = 'queued', error_message = ?, smtp_config_id = ?, attempts = attempts + 1 WHERE id = ?"
+        ).run(errMsg, smtpConfig.id, emailLog.id);
+        console.log(`[Scheduler] Transient error — requeued (attempt ${attemptsUsed + 1}/3): ${errMsg}`);
+      } else {
+        db.prepare(
+          "UPDATE email_logs SET status = 'skipped', error_message = ?, smtp_config_id = ? WHERE id = ?"
+        ).run(errMsg, smtpConfig.id, emailLog.id);
+        skippedCount++;
+      }
     }
 
-    // Yield to event loop every email so sending/scraping/verification are not blocked
-    await new Promise(resolve => setImmediate(resolve));
+    // Jittered pacing: delay_seconds ±30% between emails (configurable per
+    // campaign). Constant-interval bursts are a common throttle trigger.
+    const delaySeconds = campaign.delay_seconds || 2;
+    await new Promise(resolve => setTimeout(resolve, Math.round(delaySeconds * 1000 * (0.7 + Math.random() * 0.6))));
   }
 
   // Update campaign counters

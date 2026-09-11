@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getDb, getSetting } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
-import { getAllSmtpRateUsage, getEnabledSmtpConfigs, recordSmtpSend, isSmtpRateLimited } from '@/lib/email';
+import { getAllSmtpRateUsage, getEnabledSmtpConfigs, recordSmtpSend, isSmtpRateLimited, isDailyQuotaError, isAuthError, isTransientError, setSmtpCooldown } from '@/lib/email';
 
 export async function GET(
   request: NextRequest,
@@ -269,7 +269,7 @@ export async function GET(
                   trackingId
                 );
                 await transporter.sendMail(mailOptions);
-                db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ?, subject_used = ? WHERE id = ?")
+                db.prepare("UPDATE email_logs SET status = 'sent', sent_at = datetime('now'), smtp_config_id = ?, tracking_id = ?, subject_used = ?, attempts = attempts + 1 WHERE id = ?")
                   .run(retrySmtp.id, trackingId, emailSubject, emailLog.id);
                 recordSmtpSend(retrySmtp.id);
                 totalSent++;
@@ -291,9 +291,26 @@ export async function GET(
                   send({ type: 'smtp_quota', smtps: smtpQuotaData });
                 }
               } catch (error: any) {
-                lastError = error.message;
-                const errText = `${error.code || ''} ${error.message || ''}`;
+                lastError = error.response || error.message;
+                const errText = `${error.code || ''} ${error.response || ''} ${error.message || ''}`;
                 const isNetworkError = /ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN|ENOTFOUND|Connection timeout|Greeting|Socket timeout/i.test(errText);
+
+                // ── Gmail daily quota (550-5.4.5): cool the account down ──
+                // Retrying a quota-rejected account just burns time and adds
+                // failed log rows; Google resets on a rolling ~24h window.
+                if (isDailyQuotaError(error)) {
+                  setSmtpCooldown(retrySmtp.id, Date.now() + 60 * 60 * 1000); // 1h re-check
+                  send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'retrying', error: `${retrySmtp.name}: Gmail daily quota exceeded — account paused for 1h, rotating to next SMTP`, server: retrySmtp.name });
+                  continue; // this email still tries the next healthy account
+                }
+
+                // ── Auth rejection (535/5.7.x): pointless to retry ──
+                if (isAuthError(error)) {
+                  setSmtpCooldown(retrySmtp.id, Date.now() + 30 * 60 * 1000); // 30m
+                  send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'retrying', error: `${retrySmtp.name}: authentication rejected — account paused for 30m (check the app password)`, server: retrySmtp.name });
+                  continue;
+                }
+
                 if (isNetworkError) {
                   // Network-level failure (e.g. host blocks outbound SMTP).
                   // Other SMTP accounts share the same host/port, so trying
@@ -302,8 +319,15 @@ export async function GET(
                   consecutiveNetworkFailures++;
                   break;
                 }
+
                 // Non-network error (e.g. auth): SMTP connectivity itself works
                 consecutiveNetworkFailures = 0;
+                // Generic transient error (4xx throttle, ECONNRESET, socket
+                // closed): give this account a short breather but still try
+                // the next account for this email.
+                if (isTransientError(error)) {
+                  setSmtpCooldown(retrySmtp.id, Date.now() + 60 * 1000);
+                }
                 if (retryAttempt < smtpConfigs.length - 1) {
                   send({ type: 'progress', sent: totalSent, failed: totalFailed, remaining: totalQueued.count - totalSent - totalFailed, total, email: emailLog.contact_email, status: 'retrying', error: `${retrySmtp.name} failed, trying next SMTP...` });
                 }
@@ -321,16 +345,29 @@ export async function GET(
               break;
             }
 
-            // All SMTPs failed for this email — mark as skipped so it can be retried later
+            // All SMTPs failed for this email. Transient errors (timeouts,
+            // throttling, 4xx) are requeued for retry (max 3 attempts) — one
+            // bad moment no longer permanently skips the recipient.
             if (!emailSent) {
-              db.prepare("UPDATE email_logs SET status = 'skipped', error_message = ? WHERE id = ?")
-                .run(lastError || 'All SMTP accounts failed', emailLog.id);
-              totalSkipped++;
-              send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped, remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total, email: emailLog.contact_email, status: 'skipped', error: lastError });
+              const transient = isTransientError({ message: lastError, code: '' });
+              const prevAttempts = (emailLog.attempts as number) || 0;
+              if (transient && prevAttempts < 3) {
+                db.prepare("UPDATE email_logs SET status = 'queued', error_message = ?, attempts = attempts + 1 WHERE id = ?")
+                  .run(lastError || 'Transient SMTP error — requeued for retry', emailLog.id);
+                send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped, remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total, email: emailLog.contact_email, status: 'retrying', error: `Transient error — will retry (attempt ${prevAttempts + 1}/3): ${String(lastError).slice(0, 120)}` });
+              } else {
+                db.prepare("UPDATE email_logs SET status = 'skipped', error_message = ? WHERE id = ?")
+                  .run(lastError || 'All SMTP accounts failed', emailLog.id);
+                totalSkipped++;
+                send({ type: 'progress', sent: totalSent, failed: totalFailed, skipped: totalSkipped, remaining: totalQueued.count - totalSent - totalFailed - totalSkipped, total, email: emailLog.contact_email, status: 'skipped', error: lastError });
+              }
             }
 
+            // Jittered pacing: delay ±30% around the configured value so the
+            // cadence isn't robotic — constant-interval bursts are a common
+            // throttle trigger for Gmail/Outlook.
             if (!closed && delayMs > 0) {
-              await new Promise(resolve => setTimeout(resolve, delayMs));
+              await new Promise(resolve => setTimeout(resolve, Math.round(delayMs * (0.7 + Math.random() * 0.6))));
             }
           }
 

@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Transporter, SendMailOptions } from 'nodemailer';
+import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { getDb } from './db';
 import type { SmtpConfig, SmtpRateUsage } from './types';
 
@@ -31,7 +32,7 @@ export function resolveSmtpSecurity(config: SmtpConfig): {
   return config.secure === 1 ? { secure: true } : { secure: false };
 }
 
-export type SmtpTransportOptions = Parameters<typeof nodemailer.createTransport>[0];
+export type SmtpTransportOptions = SMTPTransport.Options;
 
 /**
  * Build the exact SMTP transport options used for real sends. Shared by
@@ -60,10 +61,86 @@ export function createTransporter(config: SmtpConfig): Transporter {
   const cached = transporterCache.get(cacheKey);
   if (cached) return cached;
 
-  const transport = nodemailer.createTransport(buildSmtpTransportOptions(config));
+  const transport = nodemailer.createTransport({
+    ...buildSmtpTransportOptions(config),
+    // Connection pooling: reuse the authenticated SMTP connection across
+    // emails instead of paying a full TCP+TLS+AUTH handshake per message.
+    // This is the single biggest fix for the timeout storm: with one
+    // handshake per email, every message was exposed to the same
+    // connect/banner/TLS latency that produced the 'Connection timeout'
+    // and 'Timeout' failures; a pooled connection sends each message over
+    // an already-established, already-authenticated socket.
+    pool: true,
+    maxConnections: 1,      // keep Gmail's per-connection behavior predictable
+    maxMessages: 200,       // recycle the connection after 200 messages
+    // Well-behaved retry for transient socket errors inside the pool.
+    // (No retryDelay — the caller paces sends; retries happen on the next
+    // email attempt, not in a tight loop.)
+    socketTimeout: 30_000,
+  });
 
   transporterCache.set(cacheKey, transport);
   return transport;
+}
+
+/** Close a pooled SMTP connection (e.g. when a send loop is done with it). */
+export async function closeTransporter(config: SmtpConfig): Promise<void> {
+  const cacheKey = `${config.id}-${config.updated_at}`;
+  const cached = transporterCache.get(cacheKey);
+  if (cached) {
+    transporterCache.delete(cacheKey);
+    try { cached.close(); } catch { /* already closed */ }
+  }
+}
+
+// ─── Server-side error classification ──────────────────────────
+
+/**
+ * Google/Gmail daily-quota rejection (550-5.4.5 "Daily user sending limit
+ * exceeded"). When Gmail returns this, further sends from that account will
+ * keep failing until Google resets the quota (rolling ~24h window), so the
+ * account must be cooled down — not retried email after email.
+ */
+export function isDailyQuotaError(error: any): boolean {
+  const msg = `${error?.response || ''} ${error?.message || ''}`;
+  return /5\.4\.5|daily user sending limit|daily sending quota/i.test(msg);
+}
+
+/**
+ * Permanent/semi-permanent auth rejection — retrying with the same
+ * credentials is pointless (and hurts the account's reputation).
+ */
+export function isAuthError(error: any): boolean {
+  const msg = `${error?.response || ''} ${error?.message || ''}`;
+  return /535|5\.7\.8|5\.7\.9|invalid login|username and password not accepted|webloginrequired|auth.*failed at/i.test(msg);
+}
+
+/**
+ * Temporary, retry-later errors: throttling, transient DNS/socket problems,
+ * greylisting. Recipients from these errors should be requeued, not skipped.
+ */
+export function isTransientError(error: any): boolean {
+  const msg = `${error?.response || ''} ${error?.message || ''} ${error?.code || ''}`;
+  return /timeout|etimedout|econnreset|econnrefused|ehostunreach|enetunreach|eai_again|socket hang up|connection closed|4\d\d[- ]|421|451|452|450/i.test(msg);
+}
+
+/**
+ * In-memory SMTP cooldown map: config id → timestamp until which the
+ * account must not be used. Survives between emails within a process;
+ * a server restart clears it (harmless — worst case one more rejected
+ * send attempt per account).
+ */
+const smtpCooldowns = new Map<string, number>();
+
+/** Put an SMTP account on cooldown until the given timestamp (ms epoch). */
+export function setSmtpCooldown(configId: string, untilMs: number): void {
+  smtpCooldowns.set(configId, untilMs);
+}
+
+/** Whether the account is currently on cooldown (and until when). */
+export function getSmtpCooldown(configId: string): number {
+  const until = smtpCooldowns.get(configId) || 0;
+  return until > Date.now() ? until : 0;
 }
 
 function clearTransporterCache(configId: string): void {
@@ -96,6 +173,13 @@ export function getSmtpRateUsage(smtpConfigId: string): SmtpRateUsage {
 }
 
 export function isSmtpRateLimited(config: SmtpConfig): { limited: boolean; reason?: string } {
+  // Server-imposed cooldown (e.g. Gmail answered 550-5.4.5 or 535) wins first:
+  // retrying a rejected account just burns time and reputation.
+  const cooldownUntil = getSmtpCooldown(config.id);
+  if (cooldownUntil) {
+    const mins = Math.ceil((cooldownUntil - Date.now()) / 60_000);
+    return { limited: true, reason: `Server cooldown active (${mins}m left) — Gmail rejected this account` };
+  }
   if (config.hourly_limit > 0) {
     const { hourly_used } = getSmtpRateUsage(config.id);
     if (hourly_used >= config.hourly_limit) {

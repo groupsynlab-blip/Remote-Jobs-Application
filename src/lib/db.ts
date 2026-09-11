@@ -555,6 +555,19 @@ function initializeDb(db: Database.Database) {
     console.error("[DB] campaigns paused_by_user migration error:", e.message);
   }
 
+  // Migration: attempts counter on email_logs so transient errors (timeouts,
+  // throttling) can be retried a bounded number of times instead of being
+  // skipped forever on the first hiccup.
+  try {
+    const logCols = db.prepare("PRAGMA table_info(email_logs)").all() as { name: string }[];
+    if (!logCols.some(c => c.name === 'attempts')) {
+      db.exec("ALTER TABLE email_logs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
+      console.log('[DB] Added attempts column to email_logs');
+    }
+  } catch (e: any) {
+    console.error("[DB] email_logs attempts migration error:", e.message);
+  }
+
   // Fix campaigns table PRIMARY KEY if missing (causes foreign key errors with email_logs)
   try {
     const pkCheck = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='campaigns'").get() as { sql: string } | undefined;
