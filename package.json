@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p $PORT",
     "lint": "eslint",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test": "node scripts/test-migrations.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
