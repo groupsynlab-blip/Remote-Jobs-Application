@@ -528,6 +528,21 @@ function initializeDb(db: Database.Database) {
     console.error("[DB] smtp_config security migration error:", e.message);
   }
 
+  // Backfill: give every pre-security row an explicit mode derived from the
+  // legacy secure flag, so no config is left to runtime inference.
+  // This mirrors resolveSmtpSecurity()'s legacy fallback (secure=1 -> implicit
+  // SSL, secure=0 -> STARTTLS), so behavior is unchanged — only explicit now.
+  try {
+    const backfilled = db.prepare(
+      "UPDATE smtp_config SET security = CASE WHEN secure = 1 THEN 'ssl' ELSE 'starttls' END WHERE security IS NULL"
+    ).run();
+    if (backfilled.changes > 0) {
+      console.log(`[DB] Backfilled ${backfilled.changes} SMTP config(s) with explicit security mode from the legacy secure flag`);
+    }
+  } catch (e: any) {
+    console.error("[DB] smtp_config security backfill error:", e.message);
+  }
+
   // Fix campaigns table PRIMARY KEY if missing (causes foreign key errors with email_logs)
   try {
     const pkCheck = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='campaigns'").get() as { sql: string } | undefined;

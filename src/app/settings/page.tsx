@@ -159,6 +159,23 @@ function OverviewTab({ settings, onSaved }: { settings: Record<string, string>; 
   );
 }
 
+/** Pill describing an SMTP config's connection security, with effective resolution for Auto/legacy rows. */
+function securityBadge(c: { security?: string | null; secure?: number; port?: number }) {
+  if (c.security === 'ssl')
+    return { label: "SSL/TLS", bg: "rgba(16,185,129,0.12)", color: "#10b981", title: "Implicit TLS from connect (typically port 465)" };
+  if (c.security === 'starttls')
+    return { label: "STARTTLS", bg: "rgba(59,130,246,0.12)", color: "#3b82f6", title: "Plain connect, upgraded to TLS via STARTTLS (typically port 587)" };
+  if (c.security === 'auto') {
+    const ssl = c.port === 465;
+    return { label: ssl ? "Auto → SSL" : "Auto → STARTTLS", bg: "rgba(168,85,247,0.12)", color: "#a855f7", title: "Auto: port 465 uses implicit SSL, other ports STARTTLS" };
+  }
+  if (c.security)
+    return { label: c.security.toUpperCase(), bg: "rgba(148,163,184,0.15)", color: "#94a3b8", title: c.security };
+  return c.secure
+    ? { label: "Legacy (SSL)", bg: "rgba(148,163,184,0.15)", color: "#94a3b8", title: "No explicit mode — inferred from the secure flag: implicit SSL" }
+    : { label: "Legacy (STARTTLS)", bg: "rgba(148,163,184,0.15)", color: "#94a3b8", title: "No explicit mode — inferred from the secure flag: plain connect + STARTTLS" };
+}
+
 export default function SettingsPage() {
   const [appUrl, setAppUrl] = useState("");
   const [confirmThreshold, setConfirmThreshold] = useState("1000");
@@ -581,7 +598,9 @@ export default function SettingsPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                     <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: c.enabled ? "#10b981" : "#ef4444", flexShrink: 0 }} />
                     <div>
-                      <div style={{ fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "0.4rem" }}>{c.name}{(() => { const b = securityBadge(c); return (
+                        <span title={b.title} style={{ padding: "0.1rem 0.45rem", borderRadius: "999px", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.03em", whiteSpace: "nowrap", background: b.bg, color: b.color }}>{b.label}</span>
+                      ); })()}</div>
                       <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{c.from_email} • {c.host}:{c.port} • {c.daily_limit}/day, {c.hourly_limit}/hr</div>
                     </div>
                   </div>
